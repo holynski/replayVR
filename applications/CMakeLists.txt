@@ -1,0 +1,2 @@
+add_executable(metadata_dump metadata_dump.cc)
+target_link_libraries(metadata_dump replay)
