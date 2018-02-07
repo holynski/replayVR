@@ -26,7 +26,6 @@ set(REPLAY_LIBRARY_DEPENDENCIES
   tinyply
   triangle
   slic
-  bento4
 )
 
 set(REPLAY_LIBRARY_SOURCE
