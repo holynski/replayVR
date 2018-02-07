@@ -1,0 +1,6 @@
+add_subdirectory(cereal)
+add_subdirectory(maxflow)
+add_subdirectory(tinyply)
+add_subdirectory(triangle)
+add_subdirectory(SLIC)
+add_subdirectory(bento4)
