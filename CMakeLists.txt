@@ -63,12 +63,12 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
 endif ()
 
 # Theia.
-find_package(Theia REQUIRED)
-if (THEIA_FOUND)
-  message("-- Found Theia SfM: ${THEIA_INCLUDE_DIRS}")
-else (THEIA_FOUND)
-  message(FATAL_ERROR "Can't find Theia SfM library.")
-endif (THEIA_FOUND)
+#find_package(Theia REQUIRED)
+#if (THEIA_FOUND)
+  #message("-- Found Theia SfM: ${THEIA_INCLUDE_DIRS}")
+#else (THEIA_FOUND)
+  #message(FATAL_ERROR "Can't find Theia SfM library.")
+#endif (THEIA_FOUND)
 
 # GFlags. The namespace patch is borrow from Ceres Solver (see license in
 # FindGflags.cmake)
@@ -167,7 +167,7 @@ endif (ZLIB_FOUND)
 include_directories(
   include
   src
-  ${THEIA_INCLUDE_DIRS}
+  #${THEIA_INCLUDE_DIRS}
   ${GFLAGS_INCLUDE_DIRS}
   ${GLOG_INCLUDE_DIRS}
   ${GL_INCLUDE_DIRS}

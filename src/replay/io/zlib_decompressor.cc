@@ -47,6 +47,7 @@ bool ZlibDecompressor::FetchChunk() {
     }
   }
   out_stream_position_ = 0;
+  // crc_ = crc32(crc_, uncompressed_chunk_, chunk_size_ - stream_.avail_out);
   if (stream_end_) {
     LOG(INFO) << crc_;
   }
@@ -55,7 +56,6 @@ bool ZlibDecompressor::FetchChunk() {
 
 bool ZlibDecompressor::Initialize(unsigned char* compressed_data,
                                   const size_t compressed_size) {
-  crc_ = crc32(crc_, compressed_data, compressed_size);
   compressed_data_ = compressed_data;
   compressed_size_ = compressed_size;
   stream_.avail_in = compressed_size;
@@ -71,6 +71,7 @@ bool ZlibDecompressor::Initialize(unsigned char* compressed_data,
   }
   FetchChunk();
   initialized_ = true;
+  crc_ = crc32(crc_, compressed_data_, compressed_size);
   return true;
 }
 

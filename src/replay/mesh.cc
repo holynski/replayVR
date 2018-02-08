@@ -101,10 +101,6 @@ int DecodeToSignedInt(const size_t input) {
 bool Mesh::LoadFromSphericalMetadata(const AVSphericalMesh& metadata) {
   ZlibDecompressor decompressor(false, 16);
   decompressor.Initialize(metadata.data, metadata.data_size);
-  while (!decompressor.EndOfStream()) {
-    decompressor.ReadByte();
-  }
-  decompressor.ReadByte();
   LOG(INFO) << "Decompressing from " << metadata.data_size;
   uint32_t size = decompressor.ReadUnsignedIntBE();  // size
   LOG(INFO) << "Size: " << size;

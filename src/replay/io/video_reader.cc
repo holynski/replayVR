@@ -203,6 +203,9 @@ Mesh* VideoReader::GetMesh(const std::string& key) {
       reinterpret_cast<AVSphericalMapping*>(side_data);
 
   Mesh* mesh = new Mesh;
+  char* encoding_chars = reinterpret_cast<char*>(&(mapping->mesh.encoding));
+  LOG(INFO) << encoding_chars[0] << encoding_chars[1] << encoding_chars[2]
+            << encoding_chars[3];
   CHECK(mesh->LoadFromSphericalMetadata(mapping->mesh)) << "Mesh was not valid";
   mesh->Save("/Users/holynski/testmesh.ply");
   return mesh;
