@@ -8,17 +8,14 @@ namespace replay {
 
 int called_fetch_chunk_ = 0;
 ZlibDecompressor::ZlibDecompressor(const bool has_header,
-                                   const size_t chunk_size,
-                                   const uint32_t encoding)
+                                   const size_t chunk_size)
     : initialized_(false),
       uncompressed_chunk_(nullptr),
       out_stream_position_(0),
       bytes_read_(0),
       stream_end_(false),
       has_header_(has_header),
-      chunk_size_(chunk_size),
-      crc_(crc32(0, Z_NULL, 0)) {
-  crc_ = crc32(crc_, reinterpret_cast<const uint8_t*>(&encoding), 4);
+      chunk_size_(chunk_size) {
   stream_.zalloc = Z_NULL;
   stream_.zfree = Z_NULL;
   stream_.opaque = Z_NULL;
@@ -47,10 +44,6 @@ bool ZlibDecompressor::FetchChunk() {
     }
   }
   out_stream_position_ = 0;
-  // crc_ = crc32(crc_, uncompressed_chunk_, chunk_size_ - stream_.avail_out);
-  if (stream_end_) {
-    LOG(INFO) << crc_;
-  }
   return true;
 }
 
@@ -71,7 +64,6 @@ bool ZlibDecompressor::Initialize(unsigned char* compressed_data,
   }
   FetchChunk();
   initialized_ = true;
-  crc_ = crc32(crc_, compressed_data_, compressed_size);
   return true;
 }
 

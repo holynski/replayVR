@@ -3,8 +3,6 @@
 #include <iostream>
 #include <opencv2/opencv.hpp>
 
-#include "replay/mesh.h"
-
 extern "C" {
 #include <libavformat/avformat.h>
 #include <libavutil/imgutils.h>
@@ -16,6 +14,27 @@ extern "C" {
 
 namespace replay {
 
+enum StreamType { VIDEO, AUDIO, METADATA, NONE };
+
+struct Packet {
+  int stream_id = -1;
+  StreamType type = StreamType::NONE;
+  double time_in_seconds;
+  double duration_in_seconds;
+};
+
+struct VideoPacket : Packet {
+  AVFrame* frame;
+};
+
+struct AudioPacket : Packet {
+  void* audio_data;
+};
+
+struct MetadataPacket : Packet {
+  void* metadata;
+};
+
 class VideoReader {
  public:
   // Constructor - initialized registers avcodec and avformat if not done
@@ -26,47 +45,43 @@ class VideoReader {
   // otherwise.
   bool Open(const std::string& filename);
 
-  // Reads through the media stream until the next video frame is found. Decodes
-  // the video frame and returns it as an RGB image. If metadata packets are
-  // encountered, the last one is retained, and can be accessed by calling
-  // LastMetadataPacket().
-  // If the end of the stream has been reached, an empty cv::Mat3b will be
-  // returned.
+  // Just returns the next video frame. It will be empty if the end of the video
+  // has been reached.
   cv::Mat3b ReadFrame();
 
-  // Returns a packet from the metadata stream, if one is available. This packet
-  // will be the one that is closest in time to the last returned video frame
-  // from ReadFrame(). If none exists, nullptr is returned.
-  void* ReadMetadataPacket();
-
-  Mesh* GetMesh(const std::string& key);
+  // Returns the next packet in the video file. This may be from either a Video,
+  // Audio, or Metadata stream. If the end of the stream has been reached, or
+  // some other error has occurred, nullptr will be returned.
+  Packet* ReadPacket();
 
   // Seeks to a time in the video. Returns true if successful or false if
   // outside the bounds of the video or otherwise unsuccessful.
-  bool Seek(const unsigned int time_in_ms);
+  bool SeekToTime(const double time_in_seconds);
+  bool SeekToFrame(const int frame_number);
+  bool SeekToMetadata(const double time_in_seconds);
 
-  // Returns the length of the video in ms.
+  // Returns the length of the video in seconds.
   unsigned int GetVideoLength() const;
 
   // Return the dimensions of the video frames.
   int GetWidth() const;
   int GetHeight() const;
 
- private:
-  bool ReadUntilPacketFromStream(const int stream_index);
+ protected:
+  cv::Mat3b AVFrameToMat(AVFrame* frame) const;
   bool file_open_ = false;
   unsigned int video_length_;
-  unsigned int current_time_ms_;
   AVFormatContext* format_context_ = nullptr;
   AVCodecContext* video_decoder_context_ = nullptr;
   AVCodec* video_decoder_ = nullptr;
   AVStream* video_stream_ = nullptr;
+  AVStream* audio_stream_ = nullptr;
+  AVStream* metadata_stream_ = nullptr;
   unsigned int width_, height_;
   int video_stream_idx_ = -1;
+  int audio_stream_idx_ = -1;
   int metadata_stream_idx_ = -1;
   AVPixelFormat pixel_format_;
-  std::vector<std::pair<int, void*>> metadata_;
-  std::vector<std::pair<int, cv::Mat3b>> frames_;
   int video_pts_ = 0;
 
   static bool registered_avcodec_;

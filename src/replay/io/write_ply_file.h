@@ -7,7 +7,7 @@
 #include <vector>
 #include "replay/io/write_ply_file.h"
 
-#include "replay/mesh.h"
+#include "replay/mesh/mesh.h"
 
 namespace replay {
 // Writes the scene to disk as a PLY file.

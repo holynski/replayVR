@@ -1,35 +1,55 @@
 # Add headers
 file(GLOB REPLAY_HDRS *.h)
 
+set(THIRD_PARTY_SRC
+  third_party/theia/sfm/camera/camera.cc
+  third_party/theia/sfm/camera/camera_intrinsics_model.cc
+  third_party/theia/sfm/camera/division_undistortion_camera_model.cc
+  third_party/theia/sfm/camera/fisheye_camera_model.cc
+  third_party/theia/sfm/camera/fov_camera_model.cc
+  third_party/theia/sfm/camera/pinhole_camera_model.cc
+  third_party/theia/sfm/camera/pinhole_radial_tangential_camera_model.cc
+  third_party/theia/sfm/camera/projection_matrix_utils.cc
+  )
+
 set(REPLAY_SRC
-  io/spherical_video_reader.cc
-  io/video_reader.cc
+  depth_map/depth_map.cc
+  io/byte_stream_reader.cc
   io/read_ply_file.cc
+  io/video_reader.cc
   io/write_ply_file.cc
   io/zlib_decompressor.cc
-  mesh.cc
+  mesh/mesh.cc
+  rendering/opengl_renderer.cc
+  rendering/stereo_video_angular_renderer.cc
+  util/lru_cache.cc
+  vr_180/mesh_projection_parser.cc
+  vr_180/vr_180_video.cc
+  vr_180/vr_180_video_reader.cc
   )
+
 
 set(REPLAY_LIBRARY_DEPENDENCIES
   #${THEIA_LIBRARIES}
+  ${CGAL_3RD_PARTY_LIBRARIES}
+  ${CGAL_3RD_PARTY_LIBRARIES}
+  ${CGAL_LIBRARIES}
+  ${CGAL_LIBRARIES}
+  ${FFMPEG_LIBRARIES}
   ${GFLAGS_LIBRARIES}
   ${GLOG_LIBRARIES}
   ${GL_LIBRARIES}
-  ${CGAL_LIBRARIES}
-  ${CGAL_3RD_PARTY_LIBRARIES}
   ${OpenCV_LIBRARIES}
-  ${FFMPEG_LIBRARIES}
   ${ZLIB_LIBRARIES}
-  ${CGAL_LIBRARIES}
-  ${CGAL_3RD_PARTY_LIBRARIES}
   maxflow
+  slic
   tinyply
   triangle
-  slic
 )
 
 set(REPLAY_LIBRARY_SOURCE
   ${REPLAY_SRC}
+  ${THIRD_PARTY_SRC}
   ${REPLAY_HDRS})
 
 add_library(replay ${REPLAY_LIBRARY_SOURCE})

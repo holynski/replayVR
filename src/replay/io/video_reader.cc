@@ -14,7 +14,10 @@ extern "C" {
 #include <glog/logging.h>
 #include <opencv2/opencv.hpp>
 #include "replay/io/video_reader.h"
-#include "replay/mesh.h"
+
+// Get video seeking working
+//
+// Get nearest metadata frame to video frame
 
 namespace replay {
 
@@ -48,7 +51,12 @@ bool VideoReader::Open(const std::string& filename) {
   metadata_stream_idx_ =
       av_find_best_stream(format_context_, AVMEDIA_TYPE_DATA, -1, -1, NULL, 0);
 
+  audio_stream_idx_ =
+      av_find_best_stream(format_context_, AVMEDIA_TYPE_AUDIO, -1, -1, NULL, 0);
+
   video_stream_ = format_context_->streams[video_stream_idx_];
+  audio_stream_ = format_context_->streams[audio_stream_idx_];
+  metadata_stream_ = format_context_->streams[metadata_stream_idx_];
 
   if ((video_decoder_ = avcodec_find_decoder(
            video_stream_->codecpar->codec_id)) == nullptr) {
@@ -88,136 +96,125 @@ bool VideoReader::Open(const std::string& filename) {
   return true;
 }
 
-bool VideoReader::ReadUntilPacketFromStream(const int stream_index) {
+Packet* VideoReader::ReadPacket() {
   AVPacket packet;
   av_init_packet(&packet);
   packet.data = NULL;
   packet.size = 0;
   packet.stream_index = -1;
-  while (packet.stream_index != stream_index) {
-    if (av_read_frame(format_context_, &packet) < 0) {
-      return false;
-    }
-    if (packet.stream_index == metadata_stream_idx_) {
-      metadata_.emplace_back(packet.pts,
-                             reinterpret_cast<void*>(new uint8_t[packet.size]));
-      memcpy(metadata_[metadata_.size() - 1].second, packet.data, packet.size);
-    }
-    if (packet.stream_index == video_stream_idx_) {
-      if (avcodec_send_packet(video_decoder_context_, &packet) < 0) {
-        return false;
-      }
-
-      AVFrame* frame = av_frame_alloc();
-      if (avcodec_receive_frame(video_decoder_context_, frame) < 0) {
-        return false;
-      }
-
-      cv::Mat rgb(height_, width_, CV_8UC3);
-      AVFrame dst;
-      dst.data[0] = (uint8_t*)rgb.data;
-      avpicture_fill((AVPicture*)&dst, dst.data[0], AV_PIX_FMT_BGR24, width_,
-                     height_);
-
-      SwsContext* convert_ctx;
-      AVPixelFormat src_pixfmt = static_cast<AVPixelFormat>(frame->format);
-      AVPixelFormat dst_pixfmt = AV_PIX_FMT_BGR24;
-      convert_ctx =
-          sws_getContext(width_, height_, src_pixfmt, width_, height_,
-                         dst_pixfmt, SWS_FAST_BILINEAR, NULL, NULL, NULL);
-
-      CHECK_NOTNULL(convert_ctx);
-
-      sws_scale(convert_ctx, frame->data, frame->linesize, 0, height_, dst.data,
-                dst.linesize);
-
-      frames_.emplace_back(packet.pts, rgb);
-    }
+  if (av_read_frame(format_context_, &packet) < 0) {
+    return nullptr;
   }
-  return true;
-}
+  if (packet.stream_index == video_stream_idx_) {
+    if (avcodec_send_packet(video_decoder_context_, &packet) < 0) {
+      return nullptr;
+    }
+
+    AVFrame* frame = av_frame_alloc();
+    if (avcodec_receive_frame(video_decoder_context_, frame) < 0) {
+      return nullptr;
+    }
+
+    VideoPacket* return_packet = new VideoPacket;
+    return_packet->stream_id = packet.stream_index;
+    return_packet->type = StreamType::VIDEO;
+    return_packet->frame = frame;
+    return_packet->time_in_seconds =
+        (packet.pts * static_cast<double>(video_stream_->time_base.num)) /
+        video_stream_->time_base.den;
+    return_packet->duration_in_seconds =
+        (packet.duration * static_cast<double>(video_stream_->time_base.num)) /
+        video_stream_->time_base.den;
+    return return_packet;
+  } else if (packet.stream_index == metadata_stream_idx_) {
+    MetadataPacket* return_packet = new MetadataPacket;
+    return_packet->stream_id = packet.stream_index;
+    return_packet->type = StreamType::METADATA;
+    return_packet->time_in_seconds =
+        (packet.pts * static_cast<double>(metadata_stream_->time_base.num)) /
+        metadata_stream_->time_base.den;
+    return_packet->metadata = reinterpret_cast<void*>(new uint8_t[packet.size]);
+    memcpy(return_packet->metadata, packet.data, packet.size);
+    //return_packet->metadata = packet.data;
+    return return_packet;
+  } else if (packet.stream_index == audio_stream_idx_) {
+    AudioPacket* return_packet = new AudioPacket;
+    return_packet->stream_id = packet.stream_index;
+    return_packet->type = StreamType::AUDIO;
+    return_packet->time_in_seconds =
+        (packet.pts * static_cast<double>(audio_stream_->time_base.num)) /
+        audio_stream_->time_base.den;
+    return return_packet;
+  } else {
+    Packet* return_packet = new Packet;
+    return_packet->stream_id = packet.stream_index;
+    return return_packet;
+  }
+}  // namespace replay
 
 cv::Mat3b VideoReader::ReadFrame() {
   CHECK(file_open_) << "Call Open() first!";
 
-  // If we haven't buffered any frames, read ahead in the stream until we find
-  // one.
-  if (frames_.empty()) {
-    if (!ReadUntilPacketFromStream(video_stream_idx_)) {
+  Packet* packet;
+  while ((packet = ReadPacket())->stream_id != video_stream_idx_) {
+    if (packet->stream_id == -1) {
+      // We hit the end of the stream.
       return cv::Mat3b();
     }
   }
 
-  // Return the first buffered frame and delete it from the cache.
-  video_pts_ = frames_[0].first;
-  cv::Mat3b return_frame = frames_[0].second;
-  frames_.erase(frames_.begin());
-  LOG(INFO) << "VideoPTS: " << video_pts_;
-  return return_frame;
+  VideoPacket* video_packet = static_cast<VideoPacket*>(packet);
+  return AVFrameToMat(video_packet->frame);
 }
 
-void* VideoReader::ReadMetadataPacket() {
+bool VideoReader::SeekToTime(const double time_in_seconds) {
   CHECK(file_open_) << "Call Open() first!";
 
-  // If the metadata packet corresponding to the last returned video frame
-  // hasn't been read already, advance the stream until it is found.
-  // In this case, also delete all the metadata entries we have cached, since we
-  // won't be needing those anymore.
-  while (metadata_.empty() ||
-         video_pts_ > metadata_[metadata_.size() - 1].first) {
-    metadata_.erase(metadata_.begin(), metadata_.end());
-    if (!ReadUntilPacketFromStream(metadata_stream_idx_)) {
-      return nullptr;
-    }
-  }
+  return SeekToFrame((time_in_seconds * video_stream_->r_frame_rate.num) / video_stream_->r_frame_rate.den);
 
-  // Search the buffered metadata values until we find the one with the smallest
-  // PTS difference to the video frame. We do this by iterating through the
-  // buffered values and stopping once we see that the absolute value in PTS
-  // difference begins to increase. If this doesn't happen, we return the last
-  // frame.
-  std::pair<int, void*>* last_meta = &(metadata_[0]);
-  int i = 0;
-  for (auto& meta : metadata_) {
-    if (std::abs(meta.first - video_pts_) >
-        std::abs(last_meta->first - video_pts_)) {
-      LOG(INFO) << "MetaPTS: " << last_meta->first;
-      void* retval = last_meta->second;
-      metadata_.erase(metadata_.begin(), metadata_.begin() + i);
-      return retval;
-    }
-    i++;
-    last_meta = &meta;
-  }
-  metadata_.erase(metadata_.begin(), metadata_.begin() + metadata_.size() - 1);
-  LOG(INFO) << "MetaPTS: " << metadata_[metadata_.size() - 1].first;
-  return metadata_[metadata_.size() - 1].second;
 }
 
-Mesh* VideoReader::GetMesh(const std::string& key) {
+bool VideoReader::SeekToMetadata(const double time_in_seconds) {
   CHECK(file_open_) << "Call Open() first!";
-  uint8_t* side_data = nullptr;
-  CHECK_NOTNULL((side_data = av_stream_get_side_data(
-                     video_stream_, AV_PKT_DATA_SPHERICAL, nullptr)));
-  AVSphericalMapping* mapping =
-      reinterpret_cast<AVSphericalMapping*>(side_data);
 
-  Mesh* mesh = new Mesh;
-  char* encoding_chars = reinterpret_cast<char*>(&(mapping->mesh.encoding));
-  LOG(INFO) << encoding_chars[0] << encoding_chars[1] << encoding_chars[2]
-            << encoding_chars[3];
-  CHECK(mesh->LoadFromSphericalMetadata(mapping->mesh)) << "Mesh was not valid";
-  mesh->Save("/Users/holynski/testmesh.ply");
-  return mesh;
-}
-
-bool VideoReader::Seek(const unsigned int time_in_ms) {
-  CHECK(file_open_) << "Call Open() first!";
-  LOG(FATAL) << "Function not implemented.";
-  if (time_in_ms >= GetVideoLength()) {
+  if (av_seek_frame(format_context_, metadata_stream_idx_,
+                    (time_in_seconds * metadata_stream_->time_base.den) /
+                        metadata_stream_->time_base.num,
+                    AVSEEK_FLAG_ANY) < 0) {
     return false;
   }
-  current_time_ms_ = time_in_ms;
+
+  return true;
+}
+
+bool VideoReader::SeekToFrame(const int frame_number) {
+  CHECK(file_open_) << "Call Open() first!";
+
+  double time_in_seconds =
+      frame_number * static_cast<double>(video_stream_->r_frame_rate.den) /
+      video_stream_->r_frame_rate.num;
+
+  if (av_seek_frame(format_context_, video_stream_idx_,
+                    (time_in_seconds * video_stream_->time_base.den) /
+                        video_stream_->time_base.num,
+                    AVSEEK_FLAG_BACKWARD) < 0) {
+    return false;
+  }
+  Packet* packet;
+    while ((packet = ReadPacket())->stream_id != video_stream_idx_) {
+      if (packet->stream_id == -1) {
+        // We hit the end of the stream.
+        return false;
+      }
+    }
+  while (time_in_seconds > (packet->time_in_seconds + packet->duration_in_seconds)) {
+    while ((packet = ReadPacket())->stream_id != video_stream_idx_) {
+      if (packet->stream_id == -1) {
+        // We hit the end of the stream.
+        return false;
+      }
+    }
+  }
   return true;
 }
 
@@ -236,4 +233,25 @@ int VideoReader::GetHeight() const {
   CHECK(file_open_) << "Call Open() first!";
   return height_;
 }
+
+cv::Mat3b VideoReader::AVFrameToMat(AVFrame* frame) const {
+  cv::Mat3b retval = cv::Mat(height_, width_, CV_8UC3);
+  AVFrame dst;
+  dst.data[0] = (uint8_t*)retval.data;
+  avpicture_fill((AVPicture*)&dst, dst.data[0], AV_PIX_FMT_BGR24, width_,
+                 height_);
+
+  SwsContext* convert_ctx;
+  AVPixelFormat src_pixfmt = static_cast<AVPixelFormat>(frame->format);
+  AVPixelFormat dst_pixfmt = AV_PIX_FMT_BGR24;
+  convert_ctx = sws_getContext(width_, height_, src_pixfmt, width_, height_,
+                               dst_pixfmt, SWS_FAST_BILINEAR, NULL, NULL, NULL);
+
+  CHECK_NOTNULL(convert_ctx);
+
+  sws_scale(convert_ctx, frame->data, frame->linesize, 0, height_, dst.data,
+            dst.linesize);
+  return retval;
 }
+
+}  // namespace replay

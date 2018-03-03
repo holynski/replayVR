@@ -2,18 +2,18 @@
 
 #include <stdint.h>
 #include "zlib.h"
+#include <replay/io/stream_reader.h>
 
 namespace replay {
 
-class ZlibDecompressor {
+class ZlibDecompressor : public StreamReader {
  public:
   // Constructor.
   //  has_header: does this compressed data stream have zlib headers?
   //  chunk_size: how big of a data buffer should be maintained for the
   //  decompressed data? A larger buffer is more efficient, but may not be
   //  available on certain systems.
-  ZlibDecompressor(const bool has_header, const size_t chunk_size = 8196,
-                   const uint32_t encoding = 0x64666c38);
+  ZlibDecompressor(const bool has_header, const size_t chunk_size = 8196);
 
   // Initializes the internal data structures for decompressing a data stream
   // (compressed_data). compressed_size refers to the number of valid bytes in
@@ -52,7 +52,6 @@ class ZlibDecompressor {
   bool stream_end_;
   const bool has_header_;
   const size_t chunk_size_;
-  uint32_t crc_;
 };
 
 }  // namespace replay
