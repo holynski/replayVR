@@ -2,3 +2,7 @@ build/*
 *#*
 *tags
 *DS_Store
+xcode/*
+Release/*
+Debug/*
+*compile_commands.json
