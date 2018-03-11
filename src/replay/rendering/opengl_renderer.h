@@ -1,10 +1,15 @@
 #ifndef REPLAY_OPENGL_RENDERER_H_
 #define REPLAY_OPENGL_RENDERER_H_
 
-#ifdef __APPLE__
+#if defined(__APPLE__)
 #define GLFW_INCLUDE_GLCOREARB
-#else  // __APPLE__
+#elif defined(__linux__) || defined(__unix__) || defined(__posix__)
 #include <GL/glew.h>
+#else 
+//#include <windows.h>
+#  include <GL/glew.h>
+#  include <GL/gl.h>
+
 #endif  // __APPLE__
 #include <GLFW/glfw3.h>
 
@@ -147,6 +152,7 @@ class OpenGLRenderer {
   bool SetViewpoint(const theia::Camera& camera);
   bool SetViewpoint(const theia::Camera& camera, const float& near,
                     const float& far);
+  bool SetProjectionMatrix(const Eigen::Matrix4f& projection);
 
   // Sets the size of the render viewport. It is not necessary to call this
   // function if SetViewpoint has been called. This function is used primarily
@@ -178,6 +184,7 @@ class OpenGLRenderer {
                            const std::string& name);
   bool UploadTexture(const cv::Mat& image, const std::string& name);
   bool UploadTexture(const DepthMap& depth, const std::string& name);
+  GLuint GetTextureId(const std::string& name) const;
 
   // Uploads a single texture image to a texture array at a given index.
   // AllocateTextureArray must be called before any calls to

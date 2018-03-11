@@ -6,6 +6,7 @@
 #include <iostream>
 #include <opencv2/core.hpp>
 #include <unordered_map>
+#include <vector>
 
 namespace replay {
 

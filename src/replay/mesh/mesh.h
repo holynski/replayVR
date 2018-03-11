@@ -3,7 +3,7 @@
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #include <CGAL/Simple_cartesian.h>
 #include <CGAL/Surface_mesh.h>
-#include <libavutil/spherical.h>
+#include "libavutil/spherical.h"
 #include <Eigen/Core>
 #include <unordered_map>
 #include <unordered_set>
@@ -156,7 +156,7 @@ class Mesh {
   const float* vertex_positions() const;
 
   // Returns all UV coordinates. Also for use with OpenGL.
-  std::vector<float> uvs() const;
+  const float* uvs() const;
 
   // Returns all triangles by their vertex ids.
   std::vector<Eigen::Matrix<VertexId, 3, 1> > triangles() const;
@@ -166,10 +166,12 @@ class Mesh {
   std::vector<std::string> comments;
 
  private:
+	 bool has_uvs_;
   // TODO(csweeney): Need to do more research to understand if exact predicates
   // are needed here.
   typedef CGAL::Simple_cartesian<float> CGALKernel;
   typedef CGALKernel::Point_3 CGALPoint3;
+  typedef CGALKernel::Point_2 CGALPoint2;
   typedef CGAL::Surface_mesh<CGALPoint3> CGALMesh;
   typedef CGALMesh::Edge_index EdgeIndex;
   typedef CGALMesh::Face_index FaceIndex;
@@ -177,16 +179,14 @@ class Mesh {
 
   Eigen::Vector3f CGALPoint3ToEigenVector3f(const CGALPoint3& vertex) const;
   CGALPoint3 EigenVector3fToCGALVertex(const Eigen::Vector3f& point) const;
+  CGALPoint2 EigenVector2fToCGALPoint2(const Eigen::Vector2f& point) const;
+  Eigen::Vector2f CGALPoint2ToEigenVector2f(const CGALPoint2& vertex) const;
 
   // The interal representation of the mesh is and CGAL triangular surface
   // mesh. This allows for efficient storage and access internally, and a
   // simplified interface wrapped in the REPLAY Mesh class.
   CGALMesh mesh_;
-
-  // The UV coordinates for each vertex in the mesh. Note that this will go out
-  // of scope when garbage collection is run, as that will alter all the
-  // vertex indices of the mesh.
-  std::unordered_map<VertexId, Eigen::Vector2f> uvs_;
+  CGALMesh::Property_map<VertexIndex, CGALPoint2> uv_map_;
 };
 
 }  // namespace replay

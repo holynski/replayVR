@@ -1,6 +1,7 @@
 #include "zlib_decompressor.h"
 #include <glog/logging.h>
 #include <math.h>
+#include <algorithm>
 #include <stdlib.h>
 #include "zlib.h"
 

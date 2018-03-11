@@ -5,4 +5,5 @@ build/*
 xcode/*
 Release/*
 Debug/*
+build64/*
 *compile_commands.json

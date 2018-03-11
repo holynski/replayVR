@@ -124,6 +124,16 @@ else (CUDA_FOUND)
   message("-- Can't find Cuda. Disabling mesh refinement.")
 endif (CUDA_FOUND)
 
+# Ceres
+message("-- Check for Ceres")
+find_package(Ceres REQUIRED)
+if (CERES_FOUND)
+  message("-- Found Ceres: ${CERES_INCLUDE_DIRS}")
+else (CERES_FOUND)
+  message(FATAL_ERROR "Can't find Ceres. Please set CERES_INCLUDE_DIR & "
+    "CERES_LIBRARY")
+endif (CERES_FOUND)
+
 find_package(OpenGL REQUIRED)
 if (OPENGL_FOUND)
   message("-- Found OpenGL: ${OPENGL_INCLUDE_DIR}")
@@ -132,12 +142,13 @@ if (OPENGL_FOUND)
     message ("-- Found GLFW: ${GLFW_INCLUDE_DIR} ")
     find_package(GLEW REQUIRED)
     if (GLEW_FOUND)
-      message ("-- Found GLEW: ${GLEW_INCLUDE_DIRS}")
+      message ("-- Found GLEW: ${GLEW_INCLUDE_DIR}")
       list(APPEND GL_INCLUDE_DIRS
 	${GLFW_INCLUDE_DIR}
 	${GLFW_INCLUDE_DIRS}
 	${OPENGL_INCLUDE_DIR}
-	${GLEW_INCLUDE_DIRS})
+	${GLEW_INCLUDE_DIRS}
+	${GLEW_INCLUDE_DIR})
       list(APPEND GL_LIBRARIES
 	${GLFW_LIBRARY}
 	${OPENGL_LIBRARIES}
@@ -159,26 +170,33 @@ if (OpenCV_FOUND)
 endif (OpenCV_FOUND)
 
 find_package(FFmpeg REQUIRED) 
-if (FFmpeg_FOUND) 
-  message("-- Found FFMPEG in: ${FFMPEG_INCLUDE_DIRS}")
-endif (FFmpeg_FOUND)
+if (FFMPEG_FOUND) 
+  message("-- Found FFMPEG in: ${FFMPEG_INCLUDE_DIR}")
+endif (FFMPEG_FOUND)
 
 find_package(ZLIB REQUIRED) 
 if (ZLIB_FOUND) 
   message("-- Found ZLIB in: ${ZLIB_INCLUDE_DIRS}")
 endif (ZLIB_FOUND)
 
+find_package(OPENVR REQUIRED) 
+if (OPENVR_FOUND) 
+  message("-- Found OPENVR in: ${OPENVR_INCLUDE_DIRS}")
+endif (OPENVR_FOUND)
+
 include_directories(
   include
   src
   #${THEIA_INCLUDE_DIRS}
+    ${CERES_INCLUDE_DIRS}
   ${GFLAGS_INCLUDE_DIRS}
   ${GLOG_INCLUDE_DIRS}
   ${GL_INCLUDE_DIRS}
   ${OpenCV_INCLUDE_DIRS}
-  ${FFMPEG_INCLUDE_DIRS}
+  ${FFMPEG_INCLUDE_DIR}
   ${ZLIB_INCLUDE_DIRS}
   ${CGAL_INCLUDE_DIRS}
+  ${OPENVR_INCLUDE_DIRS}
 )
 
 # NOTE: This fix came from Ceres solver with the following comment:

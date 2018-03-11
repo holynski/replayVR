@@ -1,8 +1,8 @@
 extern "C" {
-#include <libavformat/avformat.h>
-#include <libavutil/imgutils.h>
-#include <libavutil/samplefmt.h>
-#include <libavutil/timestamp.h>
+#include "libavformat/avformat.h"
+#include "libavutil/imgutils.h"
+#include "libavutil/samplefmt.h"
+#include "libavutil/timestamp.h"
 #include "libavcodec/avcodec.h"
 #include "libavutil/avutil.h"
 #include "libavutil/dict.h"

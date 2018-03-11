@@ -19,6 +19,55 @@
 namespace replay {
 namespace {
 
+	std::string OpenGLErrorCodeToString(GLenum error) {
+		switch (error) {
+		case GL_INVALID_ENUM:
+			return "GL_INVALID_ENUM";
+		case GL_INVALID_OPERATION:
+			return "GL_INVALID_OPERATION";
+		case GL_INVALID_VALUE:
+			return "GL_INVALID_VALUE";
+		case GL_OUT_OF_MEMORY:
+			return "GL_OUT_OF_MEMORY";
+		case GL_STACK_OVERFLOW:
+			return "GL_STACK_OVERFLOW";
+		case GL_STACK_UNDERFLOW:
+			return "GL_STACK_UNDERFLOW";
+		case GL_INVALID_FRAMEBUFFER_OPERATION:
+			return "GL_INVALID_FRAMEBUFFER_OPERATION";
+		case GL_CONTEXT_LOST:
+			return "GL_CONTEXT_LOST";
+		case GL_TABLE_TOO_LARGE:
+			return "GL_TABLE_TOO_LARGE";
+		default: 
+			return "UNKNOWN_ERROR (" + std::to_string(error) + ")";
+		};
+		
+
+}
+
+	void PrintAvailableMemoryNvidia() {
+		static const int GL_GPU_MEM_INFO_TOTAL_AVAILABLE_MEM_NVX = 0x9048;
+		static const int GL_GPU_MEM_INFO_CURRENT_AVAILABLE_MEM_NVX  = 0x9049;
+		GLint nTotalMemoryInKB = 0;
+		glGetIntegerv(GL_GPU_MEM_INFO_TOTAL_AVAILABLE_MEM_NVX,
+			&nTotalMemoryInKB);
+		GLint nCurAvailMemoryInKB = 0;
+		glGetIntegerv(GL_GPU_MEM_INFO_CURRENT_AVAILABLE_MEM_NVX,
+			&nCurAvailMemoryInKB);
+
+		LOG(INFO) << "Available GPU memory: " << nCurAvailMemoryInKB / 1000 << "MB / " << nTotalMemoryInKB / 1000 << "MB";
+	}
+
+	void CheckForOpenGLErrors()
+	{
+		int error = glGetError();
+		if (error != 0) {
+			LOG(FATAL) << "OpenGL returned error: " << OpenGLErrorCodeToString(error);
+		}
+	}
+
+
 void GLFWErrorCallback(int error, const char* description) {
   LOG(ERROR) << "Error " << error << ": " << description;
 }
@@ -31,8 +80,8 @@ std::unordered_map<GLFWwindow*, OpenGLRenderer*>
     OpenGLRenderer::window_to_renderer_;
 
 Eigen::Matrix4f GetOpenGLMatrix(const theia::Camera& camera) {
-  static const float far = 100;
-  static const float near = 0.01;
+  static const float far = 100.0f;
+  static const float near = 0.01f;
   Eigen::Matrix4d extrinsics = Eigen::Matrix4d::Zero();
   Eigen::Matrix3d rotation = camera.GetOrientationAsRotationMatrix();
   rotation.row(0) = -rotation.row(0);
@@ -171,13 +220,8 @@ bool OpenGLRenderer::CompileAndLinkShaders(const std::string& vertex,
     using_projection_matrix_.push_back(true);
   }
   *shader_id = programs_.size() - 1;
-  int error = glGetError();
-  if (error != 0) {
-    LOG(ERROR) << "OpenGL returned error code " << error;
-    return false;
-  }
+  CheckForOpenGLErrors();
   instantiated_renderers_++;
-
   return true;
 }
 
@@ -233,7 +277,7 @@ bool OpenGLRenderer::Initialize() {
   glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
   window_ = glfwCreateWindow(1920, 1080, "OpenGL Window", NULL, NULL);
   if (window_ == nullptr) {
-    LOG(ERROR) << "Window could not be created.";
+    LOG(FATAL) << "Window could not be created.";
     return false;
   }
   glfwMakeContextCurrent(window_);
@@ -257,18 +301,12 @@ bool OpenGLRenderer::Initialize() {
   glFrontFace(GL_CCW);
   is_initialized_ = true;
 
-  int error = glGetError();
-
-  if (error != 0) {
-    LOG(ERROR) << "OpenGL returned error code " << error;
-    return false;
-  }
-
+  CheckForOpenGLErrors();
   window_to_renderer_[window_] = this;
   glfwSetKeyCallback(window_, &OpenGLRenderer::KeyboardCallback);
   glfwSetMouseButtonCallback(window_, &OpenGLRenderer::MouseButtonCallback);
   glfwSetCursorPosCallback(window_, &OpenGLRenderer::MousePosCallback);
-
+  LOG(INFO) << "OpenGL Version: " << glGetString(GL_VERSION);
   return true;
 }
 
@@ -367,9 +405,9 @@ bool OpenGLRenderer::UploadMesh(const Mesh& mesh) {
   if (mesh.HasUVs()) {
     const GLint uv_location = glGetAttribLocation(programs_[current_program_], "uv");
     glBindBuffer(GL_ARRAY_BUFFER, uvbo_);
-    std::vector<float> uvs = mesh.uvs();
-    glBufferData(GL_ARRAY_BUFFER, uvs.size() * 4,
-                 (void*)mesh.uvs().data(), GL_STATIC_DRAW);
+    const float* uvs = mesh.uvs();
+    glBufferData(GL_ARRAY_BUFFER, mesh.NumVertices() * 4 * 2,
+                 (void*)uvs, GL_STATIC_DRAW);
     glEnableVertexAttribArray(uv_location);
     glBindBuffer(GL_ARRAY_BUFFER, uvbo_);
     glVertexAttribPointer(uv_location, 2, GL_FLOAT, GL_FALSE, 0, 0);
@@ -380,11 +418,7 @@ bool OpenGLRenderer::UploadMesh(const Mesh& mesh) {
                (void*)mesh.triangles().data(), GL_STATIC_DRAW);
 
   num_triangles_ = mesh.triangles().size();
-  int error = glGetError();
-  if (error != 0) {
-    LOG(ERROR) << "OpenGL returned error code " << error;
-    return false;
-  }
+  CheckForOpenGLErrors();
   has_mesh_ = true;
   return true;
 }
@@ -396,7 +430,7 @@ void OpenGLRenderer::UploadShaderUniform(const int& val,
   GLint location =
       glGetUniformLocation(programs_[current_program_], name.c_str());
   glUniform1i(location, val);
-  CHECK(glGetError() == 0) << "Error uploading shader uniform " << name;
+  CheckForOpenGLErrors();
 }
 
 void OpenGLRenderer::UploadShaderUniform(const Eigen::Vector3f& val,
@@ -406,7 +440,7 @@ void OpenGLRenderer::UploadShaderUniform(const Eigen::Vector3f& val,
   GLint location =
       glGetUniformLocation(programs_[current_program_], name.c_str());
   glUniform3fv(location, 1, val.data());
-  CHECK(glGetError() == 0) << "Error uploading shader uniform " << name;
+  CheckForOpenGLErrors();
 }
 
 void OpenGLRenderer::UploadShaderUniform(const Eigen::Vector2f& val,
@@ -416,7 +450,7 @@ void OpenGLRenderer::UploadShaderUniform(const Eigen::Vector2f& val,
   GLint location =
       glGetUniformLocation(programs_[current_program_], name.c_str());
   glUniform2fv(location, 1, val.data());
-  CHECK(glGetError() == 0) << "Error uploading shader uniform " << name;
+  CheckForOpenGLErrors();
 }
 
 void OpenGLRenderer::UploadShaderUniform(const float& val,
@@ -426,7 +460,7 @@ void OpenGLRenderer::UploadShaderUniform(const float& val,
   GLint location =
       glGetUniformLocation(programs_[current_program_], name.c_str());
   glUniform1fv(location, 1, &val);
-  CHECK(glGetError() == 0) << "Error uploading shader uniform " << name;
+  CheckForOpenGLErrors();
 }
 
 void OpenGLRenderer::UploadShaderUniform(const Eigen::Matrix4f& val,
@@ -436,7 +470,7 @@ void OpenGLRenderer::UploadShaderUniform(const Eigen::Matrix4f& val,
   GLint location =
       glGetUniformLocation(programs_[current_program_], name.c_str());
   glUniformMatrix4fv(location, 1, GL_FALSE, val.data());
-  CHECK(glGetError() == 0) << "Error uploading shader uniform " << name;
+  CheckForOpenGLErrors();
 }
 
 void OpenGLRenderer::UploadShaderUniform(
@@ -446,7 +480,7 @@ void OpenGLRenderer::UploadShaderUniform(
   GLint location =
       glGetUniformLocation(programs_[current_program_], name.c_str());
   glUniformMatrix4fv(location, val.size(), GL_FALSE, val[0].data());
-  CHECK(glGetError() == 0) << "Error uploading shader uniform " << name;
+  CheckForOpenGLErrors();
 }
 
 void OpenGLRenderer::UploadShaderUniform(
@@ -456,7 +490,7 @@ void OpenGLRenderer::UploadShaderUniform(
   GLint location =
       glGetUniformLocation(programs_[current_program_], name.c_str());
   glUniform3fv(location, val.size(), val[0].data());
-  CHECK(glGetError() == 0) << "Error uploading shader uniform " << name;
+  CheckForOpenGLErrors();
 }
 
 bool OpenGLRenderer::CreateRenderBuffer(const int& datatype,
@@ -552,11 +586,7 @@ bool OpenGLRenderer::CreateRenderBuffer(const int& datatype,
   glBufferData(GL_PIXEL_PACK_BUFFER, pbo_size, 0, GL_DYNAMIC_READ);
   glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
 
-  int error = glGetError();
-  if (error != 0) {
-    LOG(ERROR) << "OpenGL returned error code " << error;
-    return false;
-  }
+  CheckForOpenGLErrors();
 
   output_buffers_[current_program_] = output_buffer;
   buffers_bound_[current_program_] = true;
@@ -589,29 +619,33 @@ bool OpenGLRenderer::UploadTextureInternal(void* data, const int& width,
   GLint texture_location =
       glGetUniformLocation(programs_[current_program_], name.c_str());
   glUniform1i(texture_location, 4 + textures_opengl_[name]);
-  int error = glGetError();
-  if (error != 0) {
-    LOG(ERROR) << "OpenGL returned error code " << error;
-    return false;
-  }
+  CheckForOpenGLErrors();
   return true;
+}
+
+GLuint OpenGLRenderer::GetTextureId(const std::string& name) const {
+	GLuint tex = textures_.at(name);
+	return tex;
 }
 
 bool OpenGLRenderer::UploadTexture(const cv::Mat& image,
                                    const std::string& name) {
-  if (image.channels() == 3)
-    return UploadTextureInternal(reinterpret_cast<void*>(image.data),
-                                 image.cols, image.rows, GL_RGB,
+	cv::Mat dst;
+cv::flip(image, dst, 0);
+  if (dst.channels() == 3)
+	
+    return UploadTextureInternal(reinterpret_cast<void*>(dst.data),
+                                 dst.cols, dst.rows, GL_BGR,
                                  GL_UNSIGNED_BYTE, GL_RGB8, name);
-  if (image.channels() == 4)
-    return UploadTextureInternal(reinterpret_cast<void*>(image.data),
-                                 image.cols, image.rows, GL_RGBA,
+  if (dst.channels() == 4)
+    return UploadTextureInternal(reinterpret_cast<void*>(dst.data),
+                                 dst.cols, dst.rows, GL_RGBA,
                                  GL_UNSIGNED_BYTE, GL_RGBA8, name);
-  if (image.channels() == 1)
-    return UploadTextureInternal(reinterpret_cast<void*>(image.data),
-                                 image.cols, image.rows, GL_RED,
+  if (dst.channels() == 1)
+    return UploadTextureInternal(reinterpret_cast<void*>(dst.data),
+                                 dst.cols, dst.rows, GL_RED,
                                  GL_UNSIGNED_BYTE, GL_R8, name);
-  LOG(FATAL) << "Number of channels " << image.channels()
+  LOG(FATAL) << "Number of channels " << dst.channels()
              << " not implemented in UploadTexture.";
   return false;
 }
@@ -626,18 +660,29 @@ bool OpenGLRenderer::AllocateTextureArray(const std::string& name,
                                           const int& width, const int& height,
                                           const int& channels,
                                           const int& num_elements) {
+
   glfwMakeContextCurrent(window_);
   CHECK(current_program_ >= 0) << "Did not call UseShader!";
   glUseProgram(programs_[current_program_]);
+ 
+  int dim;
+  glGetIntegerv(GL_MAX_3D_TEXTURE_SIZE, &dim);
+  
+  LOG(INFO) << "Max 3d texture size: " << dim;
+  glGetIntegerv(GL_MAX_ARRAY_TEXTURE_LAYERS, &dim);
+  LOG(INFO) << "Max texture layers : " << dim;
   if (textures_.count(name) < 1) {
     GLuint tex;
     glGenTextures(1, &tex);
     textures_opengl_[name] = textures_.size();
     textures_[name] = tex;
   }
+
   GLuint tex = textures_[name];
   glActiveTexture(GL_TEXTURE4 + textures_opengl_[name]);
   glBindTexture(GL_TEXTURE_2D_ARRAY, tex);
+
+
   switch (channels) {
     case 1:
       glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RED, width, height, num_elements,
@@ -657,18 +702,15 @@ bool OpenGLRenderer::AllocateTextureArray(const std::string& name,
       break;
   }
 
-  glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-  glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+  glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
   glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
   glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
   GLint texture_location =
       glGetUniformLocation(programs_[current_program_], name.c_str());
   glUniform1i(texture_location, 4 + textures_opengl_[name]);
-  int error = glGetError();
-  if (error != 0) {
-    LOG(FATAL) << "OpenGL returned error code " << error;
-    return false;
-  }
+  CheckForOpenGLErrors();
   return true;
 }
 
@@ -684,33 +726,31 @@ bool OpenGLRenderer::UploadTextureToArrayInternal(
   glBindTexture(GL_TEXTURE_2D_ARRAY, tex);
   glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, index, width, height, 1, format,
                   GL_UNSIGNED_BYTE, data);
-  int error = glGetError();
-  if (error != 0) {
-    LOG(FATAL) << "OpenGL returned error code " << error;
-    return false;
-  }
+  CheckForOpenGLErrors();
   return true;
 }
 
 bool OpenGLRenderer::UploadTextureToArray(const cv::Mat& image,
                                           const std::string& name,
                                           const int& index) {
-  switch (image.channels()) {
+	cv::Mat dst;
+	cv::flip(image, dst, 0);
+  switch (dst.channels()) {
     case 1:
-      return UploadTextureToArrayInternal(image.data, name, image.cols,
-                                          image.rows, GL_RED, index);
+      return UploadTextureToArrayInternal(dst.data, name, dst.cols,
+		  dst.rows, GL_RED, index);
       break;
     case 3:
-      return UploadTextureToArrayInternal(image.data, name, image.cols,
-                                          image.rows, GL_RGB, index);
+      return UploadTextureToArrayInternal(dst.data, name, dst.cols,
+		  dst.rows, GL_RGB, index);
       break;
     case 4:
-      return UploadTextureToArrayInternal(image.data, name, image.cols,
-                                          image.rows, GL_RGBA, index);
+      return UploadTextureToArrayInternal(dst.data, name, dst.cols,
+		  dst.rows, GL_RGBA, index);
       break;
     default:
       LOG(FATAL) << "UploadTextureToArray not implemented for "
-                 << image.channels() << " channel cv::Mat";
+                 << dst.channels() << " channel cv::Mat";
       break;
   }
 }
@@ -723,7 +763,7 @@ bool OpenGLRenderer::UploadTextureToArray(const DepthMap& depth,
 }
 
 bool OpenGLRenderer::SetViewpoint(const theia::Camera& camera) {
-  return SetViewpoint(camera, 0.01, 100);
+  return SetViewpoint(camera, 0.01f, 100.0f);
 }
 
 void OpenGLRenderer::SetViewportSize(const int& width, const int& height) {
@@ -768,22 +808,30 @@ bool OpenGLRenderer::SetViewpoint(const theia::Camera& camera,
 
   glUniformMatrix4fv(mvp_location_, 1, GL_FALSE,
                      (const GLfloat*)projection_.data());
-  int error = glGetError();
-  if (error != 0) {
-    LOG(FATAL) << "OpenGL returned error code " << error;
-    return false;
-  }
+  CheckForOpenGLErrors();
   return true;
+}
+
+bool OpenGLRenderer::SetProjectionMatrix(const Eigen::Matrix4f& projection) {
+	glfwMakeContextCurrent(window_);
+	CHECK(using_projection_matrix_[current_program_])
+		<< "Cannot call SetViewpoint on a fullscreen shader!";
+	projection_ = projection;
+
+	CHECK(current_program_ >= 0) << "Did not call UseShader!";
+	mvp_location_ = glGetUniformLocation(programs_[current_program_], "MVP");
+	glUseProgram(programs_[current_program_]);
+
+	glUniformMatrix4fv(mvp_location_, 1, GL_FALSE,
+		(const GLfloat*)projection_.data());
+	CheckForOpenGLErrors();
+	return true;
 }
 
 bool OpenGLRenderer::UseShader(const int& shader_id) {
   glfwMakeContextCurrent(window_);
   if (shader_id >= 0 && shader_id < programs_.size()) {
-    int error = glGetError();
-    if (error != 0) {
-      LOG(FATAL) << "OpenGL returned error code " << error;
-      return false;
-    }
+	  CheckForOpenGLErrors();
     current_program_ = shader_id;
     glUseProgram(programs_[current_program_]);
     return true;
@@ -819,8 +867,7 @@ void OpenGLRenderer::ShowWindow() {
   if (!window_showing_) {
     glfwShowWindow(window_);
     window_showing_ = true;
-    int error = glGetError();
-    CHECK(error == 0) << "OpenGL returned error " << error;
+	CheckForOpenGLErrors();
   }
 }
 
@@ -829,8 +876,7 @@ void OpenGLRenderer::HideWindow() {
   if (window_showing_) {
     glfwHideWindow(window_);
     window_showing_ = false;
-    int error = glGetError();
-    CHECK(error == 0) << "OpenGL returned error " << error;
+	CheckForOpenGLErrors();
   }
 }
 
@@ -915,8 +961,7 @@ void OpenGLRenderer::RenderToBufferInternal(void* buffer, const int& format,
   } else {
     UploadShaderUniform(1.0f, "negative");
   }
-  int error = glGetError();
-  CHECK_EQ(error, 0) << "OpenGL returned error code " << error;
+  CheckForOpenGLErrors();
 }
 
 void OpenGLRenderer::RenderToImage(TriangleIdMap* array) {
@@ -937,15 +982,18 @@ void OpenGLRenderer::RenderToImage(cv::Mat* image) {
 
   switch (image->channels()) {
     case 1:
+		CHECK(false);
       RenderToBufferInternal((void*)image->data, GL_RED, GL_UNSIGNED_BYTE);
       break;
     case 2:
+		CHECK(false);
       RenderToBufferInternal((void*)image->data, GL_RG, GL_UNSIGNED_BYTE);
       break;
     case 3:
       RenderToBufferInternal((void*)image->data, GL_RGB, GL_UNSIGNED_BYTE);
       break;
     case 4:
+		CHECK(false);
       RenderToBufferInternal((void*)image->data, GL_RGBA, GL_UNSIGNED_BYTE);
       break;
     default:

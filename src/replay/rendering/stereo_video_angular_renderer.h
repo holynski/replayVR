@@ -21,6 +21,8 @@ class StereoVideoAngularRenderer {
 
   bool RenderEye(theia::Camera camera, const int eye_id,
                  const Eigen::Vector3f& lookat);
+  bool RenderEye(Eigen::Matrix4f projection, const int width, const int height, const int eye_id,
+	  const Eigen::Matrix3f& rotation);
 
   bool Initialize(const std::string& spherical_video_filename);
 
@@ -31,6 +33,7 @@ class StereoVideoAngularRenderer {
   bool is_initialized_;
   std::vector<Eigen::Vector3f> frame_lookats_;
   std::vector<Eigen::Vector3f> frame_upvecs_;
+  std::vector<Eigen::Matrix3f> frame_rotations_;
   cv::Mat3b image_;
   VR180VideoReader reader_;
 };

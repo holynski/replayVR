@@ -27,13 +27,13 @@
 #include "replay/third_party/theia/util/map_util.h"
 
 namespace replay {
-Mesh::Mesh() {}
+	Mesh::Mesh() : has_uvs_(false) {}
 
 int Mesh::NumVertices() const { return mesh_.number_of_vertices(); }
 
 int Mesh::NumTriangleFaces() const { return mesh_.number_of_faces(); }
 
-bool Mesh::HasUVs() const { return uvs_.size() > 0; }
+bool Mesh::HasUVs() const { return has_uvs_;  }
 
 // Methods to load/save the mesh to/from disk. The file type is deduced from
 // the extention of the provided filename.
@@ -304,12 +304,19 @@ void Mesh::SetVertexUV(const VertexId& vertex, const float& u, const float& v) {
 
 void Mesh::SetVertexUV(const VertexId& vertex, const Eigen::Vector2f& uv) {
   DCHECK(mesh_.is_valid(VertexIndex(vertex)));
-  uvs_[vertex] = uv;
+  if (!has_uvs_) {
+	  std::pair<CGALMesh::Property_map<VertexIndex, CGALPoint2>, bool> added_map =  mesh_.add_property_map<VertexIndex, CGALPoint2>("uv", CGALPoint2());
+	  CHECK(added_map.second);
+	  uv_map_ = added_map.first;
+	  has_uvs_ = true;
+  }
+  mesh_.property_map<VertexIndex, CGALPoint2>("uv").first[VertexIndex(vertex)] = EigenVector2fToCGALPoint2(uv);
 }
 
 Eigen::Vector2f Mesh::VertexUV(const VertexId& vertex) const {
-  DCHECK(mesh_.is_valid(VertexIndex(vertex)));
-  return theia::FindOrDie(uvs_, vertex);
+  CHECK(mesh_.is_valid(VertexIndex(vertex)));
+  CHECK(has_uvs_) << "Mesh does not have UVs!";
+  return CGALPoint2ToEigenVector2f(mesh_.property_map<VertexIndex, CGALPoint2>("uv").first[VertexIndex(vertex)]);
 }
 
 void Mesh::SubdivideTriangle(const TriangleFaceId triangle) {
@@ -406,16 +413,8 @@ const float* Mesh::vertex_positions() const {
   return &(mesh_.points()[VertexIndex(0)][0]);
 }
 
-std::vector<float> Mesh::uvs() const {
-  std::vector<float> uvs(uvs_.size() * 2);
-  int i = 0;
-  for (auto& uv : uvs_) {
-    uvs[i] = uv.second[0];
-    i++;
-    uvs[i] = uv.second[1];
-    i++;
-  }
-  return uvs;
+const float* Mesh::uvs() const {
+	return &(mesh_.property_map<VertexIndex, CGALPoint2>("uv").first[VertexIndex(0)][0]);
 }
 
 // Returns all triangles by their vertex ids.
@@ -438,6 +437,16 @@ Eigen::Vector3f Mesh::CGALPoint3ToEigenVector3f(
 Mesh::CGALPoint3 Mesh::EigenVector3fToCGALVertex(
     const Eigen::Vector3f& point) const {
   return CGALPoint3(point.x(), point.y(), point.z());
+}
+
+Mesh::CGALPoint2 Mesh::EigenVector2fToCGALPoint2(
+	const Eigen::Vector2f& point) const {
+	return CGALPoint2(point.x(), point.y());
+}
+
+Eigen::Vector2f Mesh::CGALPoint2ToEigenVector2f(
+	const CGALPoint2& vertex) const {
+	return Eigen::Vector2f(vertex.x(), vertex.y());
 }
 
 }  // namespace replay

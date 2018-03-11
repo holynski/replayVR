@@ -37,7 +37,7 @@
 
 #include <Eigen/Core>
 
-#include "theia/sfm/types.h"
+#include "replay/third_party/theia/sfm/types.h"
 
 namespace theia {
 

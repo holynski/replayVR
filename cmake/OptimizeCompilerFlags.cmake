@@ -107,7 +107,7 @@ macro(OptimizeCompilerFlags)
       add_definitions("-std=gnu++0x")
       SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=gnu++0x")
     else ()
-      message(FATAL_ERROR "C++11 needed. Therefore a gcc compiler with a version higher than 4.3 is needed.")
+      message(WARNING "C++11 needed. Therefore a gcc compiler with a version higher than 4.3 is needed.")
     endif()
   endif()
 
