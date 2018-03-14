@@ -20,7 +20,8 @@ set(REPLAY_SRC
   io/write_ply_file.cc
   io/zlib_decompressor.cc
   mesh/mesh.cc
-  rendering/opengl_renderer.cc
+  rendering/opengl_context.cc
+  rendering/vr_context.cc
   rendering/stereo_video_angular_renderer.cc
   util/lru_cache.cc
   vr_180/mesh_projection_parser.cc

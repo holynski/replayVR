@@ -27,28 +27,28 @@ namespace replay {
 // that can be passed to the UploadShaderUniform function.
 Eigen::Matrix4f GetOpenGLMatrix(const theia::Camera& camera);
 
-// The OpenGLRenderer class is a wrapper for shader rendering via OpenGL.
+// The OpenGLContext class is a wrapper for shader rendering via OpenGL.
 // Multiple instances of this class cannot exist on different threads safely.
 // Each instance of this class has a single render window.
 //
 // Example usage:
-//    OpenGLRenderer renderer;
+//    OpenGLContext renderer;
 //    renderer.Initialize();
 //    renderer.CompileAndLinkShaders(vertex, fragment, &id);
 //    renderer.UseShader(id);
 //    renderer.UploadMesh(mesh);
 //    renderer.SetViewpoint(camera);
-//    renderer.RenderToWindow() *or* renderer.RenderToImage(&image);
-class OpenGLRenderer {
+//    renderer.Render() *or* renderer.RenderToImage(&image);
+class OpenGLContext {
  public:
   // Creates an OpenGL renderer object. The OpenGL context is not created until
   // the Initialize() function is called.
-  OpenGLRenderer();
+  OpenGLContext();
 
   // Destroys all the shaders and meshes that have been uploaded to the GPU, and
-  // if there are not any other OpenGLRenderer objects currently instantiated,
+  // if there are not any other OpenGLContext objects currently instantiated,
   // destroys the OpenGL context.
-  ~OpenGLRenderer();
+  ~OpenGLContext();
 
   // Sets up the OpenGL context. Must be called before using anything else in
   // this class.
@@ -232,12 +232,12 @@ class OpenGLRenderer {
 
   // Renders a frame to the window. Will render to the window even if it is
   // hidden, and the image will continue to be displayed until the next call to
-  // RenderToWindow().
-  void RenderToWindow();
+  // Render().
+  void Render();
 
- private:
+ protected:
   static int instantiated_renderers_;
-  static std::unordered_map<GLFWwindow*, OpenGLRenderer*> window_to_renderer_;
+  static std::unordered_map<GLFWwindow*, OpenGLContext*> window_to_renderer_;
   int current_program_;
   std::vector<GLuint> programs_;
   std::vector<GLuint> fragment_shaders_;

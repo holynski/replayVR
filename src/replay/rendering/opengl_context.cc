@@ -1,4 +1,4 @@
-#include "replay/rendering/opengl_renderer.h"
+#include "replay/rendering/opengl_context.h"
 
 #ifdef __APPLE__
 #define GLFW_INCLUDE_GLCOREARB
@@ -19,54 +19,43 @@
 namespace replay {
 namespace {
 
-	std::string OpenGLErrorCodeToString(GLenum error) {
-		switch (error) {
-		case GL_INVALID_ENUM:
-			return "GL_INVALID_ENUM";
-		case GL_INVALID_OPERATION:
-			return "GL_INVALID_OPERATION";
-		case GL_INVALID_VALUE:
-			return "GL_INVALID_VALUE";
-		case GL_OUT_OF_MEMORY:
-			return "GL_OUT_OF_MEMORY";
-		case GL_STACK_OVERFLOW:
-			return "GL_STACK_OVERFLOW";
-		case GL_STACK_UNDERFLOW:
-			return "GL_STACK_UNDERFLOW";
-		case GL_INVALID_FRAMEBUFFER_OPERATION:
-			return "GL_INVALID_FRAMEBUFFER_OPERATION";
-		case GL_CONTEXT_LOST:
-			return "GL_CONTEXT_LOST";
-		case GL_TABLE_TOO_LARGE:
-			return "GL_TABLE_TOO_LARGE";
-		default: 
-			return "UNKNOWN_ERROR (" + std::to_string(error) + ")";
-		};
-		
-
+std::string OpenGLErrorCodeToString(GLenum error) {
+  switch (error) {
+    case GL_INVALID_ENUM:
+      return "GL_INVALID_ENUM";
+    case GL_INVALID_OPERATION:
+      return "GL_INVALID_OPERATION";
+    case GL_INVALID_VALUE:
+      return "GL_INVALID_VALUE";
+    case GL_OUT_OF_MEMORY:
+      return "GL_OUT_OF_MEMORY";
+    case GL_INVALID_FRAMEBUFFER_OPERATION:
+      return "GL_INVALID_FRAMEBUFFER_OPERATION";
+    default:
+      return "UNKNOWN_ERROR (" + std::to_string(error) + ")";
+  };
 }
 
-	void PrintAvailableMemoryNvidia() {
-		static const int GL_GPU_MEM_INFO_TOTAL_AVAILABLE_MEM_NVX = 0x9048;
-		static const int GL_GPU_MEM_INFO_CURRENT_AVAILABLE_MEM_NVX  = 0x9049;
-		GLint nTotalMemoryInKB = 0;
-		glGetIntegerv(GL_GPU_MEM_INFO_TOTAL_AVAILABLE_MEM_NVX,
-			&nTotalMemoryInKB);
-		GLint nCurAvailMemoryInKB = 0;
-		glGetIntegerv(GL_GPU_MEM_INFO_CURRENT_AVAILABLE_MEM_NVX,
-			&nCurAvailMemoryInKB);
+// void PrintAvailableMemoryNvidia() {
+// static const int GL_GPU_MEM_INFO_TOTAL_AVAILABLE_MEM_NVX = 0x9048;
+// static const int GL_GPU_MEM_INFO_CURRENT_AVAILABLE_MEM_NVX  = 0x9049;
+// GLint nTotalMemoryInKB = 0;
+// glGetIntegerv(GL_GPU_MEM_INFO_TOTAL_AVAILABLE_MEM_NVX,
+//&nTotalMemoryInKB);
+// GLint nCurAvailMemoryInKB = 0;
+// glGetIntegerv(GL_GPU_MEM_INFO_CURRENT_AVAILABLE_MEM_NVX,
+//&nCurAvailMemoryInKB);
 
-		LOG(INFO) << "Available GPU memory: " << nCurAvailMemoryInKB / 1000 << "MB / " << nTotalMemoryInKB / 1000 << "MB";
-	}
+// LOG(INFO) << "Available GPU memory: " << nCurAvailMemoryInKB / 1000 << "MB /
+// " << nTotalMemoryInKB / 1000 << "MB";
+//}
 
-	void CheckForOpenGLErrors()
-	{
-		int error = glGetError();
-		if (error != 0) {
-			LOG(FATAL) << "OpenGL returned error: " << OpenGLErrorCodeToString(error);
-		}
-	}
-
+void CheckForOpenGLErrors() {
+  int error = glGetError();
+  if (error != 0) {
+    LOG(FATAL) << "OpenGL returned error: " << OpenGLErrorCodeToString(error);
+  }
+}
 
 void GLFWErrorCallback(int error, const char* description) {
   LOG(ERROR) << "Error " << error << ": " << description;
@@ -74,10 +63,10 @@ void GLFWErrorCallback(int error, const char* description) {
 
 }  // namespace
 
-int OpenGLRenderer::instantiated_renderers_ = 0;
-float OpenGLRenderer::framebuffer_size_to_screen_coords_ = 1.0;
-std::unordered_map<GLFWwindow*, OpenGLRenderer*>
-    OpenGLRenderer::window_to_renderer_;
+int OpenGLContext::instantiated_renderers_ = 0;
+float OpenGLContext::framebuffer_size_to_screen_coords_ = 1.0;
+std::unordered_map<GLFWwindow*, OpenGLContext*>
+    OpenGLContext::window_to_renderer_;
 
 Eigen::Matrix4f GetOpenGLMatrix(const theia::Camera& camera) {
   static const float far = 100.0f;
@@ -100,9 +89,9 @@ Eigen::Matrix4f GetOpenGLMatrix(const theia::Camera& camera) {
   return retval;
 }
 
-bool OpenGLRenderer::HasMesh() const { return has_mesh_; }
+bool OpenGLContext::HasMesh() const { return has_mesh_; }
 
-OpenGLRenderer::OpenGLRenderer()
+OpenGLContext::OpenGLContext()
     : pbo_id_(-1),
       mvp_location_(-1),
       is_initialized_(false),
@@ -111,14 +100,14 @@ OpenGLRenderer::OpenGLRenderer()
   // CHECK(Initialize()) << "Initializing OpenGL failed;";
 }
 
-OpenGLRenderer::~OpenGLRenderer() {
+OpenGLContext::~OpenGLContext() {
   instantiated_renderers_--;
   if (instantiated_renderers_ <= 0) {
     DestroyContext();
   }
 }
 
-void OpenGLRenderer::DestroyContext() {
+void OpenGLContext::DestroyContext() {
   glfwMakeContextCurrent(window_);
   for (int i = 0; i < programs_.size(); i++) {
     glDeleteProgram(programs_[i]);
@@ -131,8 +120,8 @@ void OpenGLRenderer::DestroyContext() {
   glfwTerminate();
 }
 
-bool OpenGLRenderer::ReadShaderFromFile(const std::string& filename,
-                                        std::string* shader_src) {
+bool OpenGLContext::ReadShaderFromFile(const std::string& filename,
+                                       std::string* shader_src) {
   std::ifstream shader_ifstream(filename.c_str());
   if (!shader_ifstream.is_open()) {
     return false;
@@ -144,9 +133,9 @@ bool OpenGLRenderer::ReadShaderFromFile(const std::string& filename,
   return true;
 }
 
-bool OpenGLRenderer::CompileAndLinkShaders(const std::string& vertex,
-                                           const std::string& fragment,
-                                           int* shader_id) {
+bool OpenGLContext::CompileAndLinkShaders(const std::string& vertex,
+                                          const std::string& fragment,
+                                          int* shader_id) {
   glfwMakeContextCurrent(window_);
   CHECK(is_initialized_) << "Call initialize first.";
   GLuint vertex_shader = glCreateShader(GL_VERTEX_SHADER);
@@ -206,9 +195,9 @@ bool OpenGLRenderer::CompileAndLinkShaders(const std::string& vertex,
   LOG(INFO) << "Linked.";
   glDetachShader(program, vertex_shader);
   glDetachShader(program, fragment_shader);
-  //glBindAttribLocation(program, 0, "vert");
-  //if (vertex.find("in vec2 vertexUV;") != std::string::npos) {
-    //glBindAttribLocation(program, 2, "vertexUV");
+  // glBindAttribLocation(program, 0, "vert");
+  // if (vertex.find("in vec2 vertexUV;") != std::string::npos) {
+  // glBindAttribLocation(program, 2, "vertexUV");
   //}
   glClampColor(GL_CLAMP_READ_COLOR, GL_FALSE);
   programs_.push_back(program);
@@ -225,8 +214,8 @@ bool OpenGLRenderer::CompileAndLinkShaders(const std::string& vertex,
   return true;
 }
 
-bool OpenGLRenderer::CompileFullScreenShader(const std::string& fragment,
-                                             int* shader_id) {
+bool OpenGLContext::CompileFullScreenShader(const std::string& fragment,
+                                            int* shader_id) {
   // Create a full-screen mesh. Upload this mesh so that it clears all vertex
   // and element buffers.
   Mesh single_triangle_mesh;
@@ -252,9 +241,9 @@ bool OpenGLRenderer::CompileFullScreenShader(const std::string& fragment,
   return CompileAndLinkShaders(full_screen_vs, fragment, shader_id);
 }
 
-bool OpenGLRenderer::IsInitialized() const { return is_initialized_; }
+bool OpenGLContext::IsInitialized() const { return is_initialized_; }
 
-bool OpenGLRenderer::Initialize() {
+bool OpenGLContext::Initialize() {
   has_mesh_ = false;
   Keyboard_ = NULL;
   MouseButton_ = NULL;
@@ -303,19 +292,19 @@ bool OpenGLRenderer::Initialize() {
 
   CheckForOpenGLErrors();
   window_to_renderer_[window_] = this;
-  glfwSetKeyCallback(window_, &OpenGLRenderer::KeyboardCallback);
-  glfwSetMouseButtonCallback(window_, &OpenGLRenderer::MouseButtonCallback);
-  glfwSetCursorPosCallback(window_, &OpenGLRenderer::MousePosCallback);
+  glfwSetKeyCallback(window_, &OpenGLContext::KeyboardCallback);
+  glfwSetMouseButtonCallback(window_, &OpenGLContext::MouseButtonCallback);
+  glfwSetCursorPosCallback(window_, &OpenGLContext::MousePosCallback);
   LOG(INFO) << "OpenGL Version: " << glGetString(GL_VERSION);
   return true;
 }
 
-void OpenGLRenderer::MouseButtonCallback(GLFWwindow* window, int button,
-                                         int action, int mods) {
+void OpenGLContext::MouseButtonCallback(GLFWwindow* window, int button,
+                                        int action, int mods) {
   if (window == NULL) {
     return;
   }
-  OpenGLRenderer* renderer = window_to_renderer_[window];
+  OpenGLContext* renderer = window_to_renderer_[window];
   if (renderer == NULL) {
     return;
   }
@@ -325,12 +314,12 @@ void OpenGLRenderer::MouseButtonCallback(GLFWwindow* window, int button,
   (*(renderer->MouseButton_))(button, action, mods);
 }
 
-void OpenGLRenderer::KeyboardCallback(GLFWwindow* window, int key, int scancode,
-                                      int action, int mods) {
+void OpenGLContext::KeyboardCallback(GLFWwindow* window, int key, int scancode,
+                                     int action, int mods) {
   if (window == NULL) {
     return;
   }
-  OpenGLRenderer* renderer = window_to_renderer_[window];
+  OpenGLContext* renderer = window_to_renderer_[window];
   if (renderer == NULL) {
     return;
   }
@@ -340,11 +329,11 @@ void OpenGLRenderer::KeyboardCallback(GLFWwindow* window, int key, int scancode,
   (*(renderer->Keyboard_))(key, action, mods);
 }
 
-void OpenGLRenderer::MousePosCallback(GLFWwindow* window, double x, double y) {
+void OpenGLContext::MousePosCallback(GLFWwindow* window, double x, double y) {
   if (window == NULL) {
     return;
   }
-  OpenGLRenderer* renderer = window_to_renderer_[window];
+  OpenGLContext* renderer = window_to_renderer_[window];
   if (renderer == NULL) {
     return;
   }
@@ -357,35 +346,35 @@ void OpenGLRenderer::MousePosCallback(GLFWwindow* window, double x, double y) {
                             y / framebuffer_size_to_screen_coords_);
 }
 
-bool OpenGLRenderer::SetMousePositionCallback(void (*callback)(double,
-                                                               double)) {
+bool OpenGLContext::SetMousePositionCallback(void (*callback)(double, double)) {
   MouseMove_ = callback;
   return true;
 }
 
-bool OpenGLRenderer::SetMouseClickCallback(void (*callback)(int, int, int)) {
+bool OpenGLContext::SetMouseClickCallback(void (*callback)(int, int, int)) {
   MouseButton_ = callback;
   LOG(INFO) << "Setting callback";
   return true;
 }
 
-bool OpenGLRenderer::SetKeyboardCallback(void (*callback)(int, int, int)) {
+bool OpenGLContext::SetKeyboardCallback(void (*callback)(int, int, int)) {
   Keyboard_ = callback;
   return true;
 }
 
-Eigen::Vector2d OpenGLRenderer::GetMousePosition() const {
+Eigen::Vector2d OpenGLContext::GetMousePosition() const {
   return mouse_position_;
 }
 
-bool OpenGLRenderer::UploadMesh(const Mesh& mesh) {
+bool OpenGLContext::UploadMesh(const Mesh& mesh) {
   glfwMakeContextCurrent(window_);
   if (mesh.NumVertices() <= 0) {
     has_mesh_ = true;
     return true;
   }
 
-  const GLint vert_location = glGetAttribLocation(programs_[current_program_], "vert");
+  const GLint vert_location =
+      glGetAttribLocation(programs_[current_program_], "vert");
   if (!has_mesh_) {
     glGenVertexArrays(1, &vao_);
     glBindVertexArray(vao_);
@@ -403,11 +392,12 @@ bool OpenGLRenderer::UploadMesh(const Mesh& mesh) {
   glVertexAttribPointer(vert_location, 3, GL_FLOAT, GL_FALSE, 0, 0);
 
   if (mesh.HasUVs()) {
-    const GLint uv_location = glGetAttribLocation(programs_[current_program_], "uv");
+    const GLint uv_location =
+        glGetAttribLocation(programs_[current_program_], "uv");
     glBindBuffer(GL_ARRAY_BUFFER, uvbo_);
     const float* uvs = mesh.uvs();
-    glBufferData(GL_ARRAY_BUFFER, mesh.NumVertices() * 4 * 2,
-                 (void*)uvs, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, mesh.NumVertices() * 4 * 2, (void*)uvs,
+                 GL_STATIC_DRAW);
     glEnableVertexAttribArray(uv_location);
     glBindBuffer(GL_ARRAY_BUFFER, uvbo_);
     glVertexAttribPointer(uv_location, 2, GL_FLOAT, GL_FALSE, 0, 0);
@@ -423,8 +413,8 @@ bool OpenGLRenderer::UploadMesh(const Mesh& mesh) {
   return true;
 }
 
-void OpenGLRenderer::UploadShaderUniform(const int& val,
-                                         const std::string& name) {
+void OpenGLContext::UploadShaderUniform(const int& val,
+                                        const std::string& name) {
   glfwMakeContextCurrent(window_);
   glUseProgram(programs_[current_program_]);
   GLint location =
@@ -433,8 +423,8 @@ void OpenGLRenderer::UploadShaderUniform(const int& val,
   CheckForOpenGLErrors();
 }
 
-void OpenGLRenderer::UploadShaderUniform(const Eigen::Vector3f& val,
-                                         const std::string& name) {
+void OpenGLContext::UploadShaderUniform(const Eigen::Vector3f& val,
+                                        const std::string& name) {
   glfwMakeContextCurrent(window_);
   glUseProgram(programs_[current_program_]);
   GLint location =
@@ -443,8 +433,8 @@ void OpenGLRenderer::UploadShaderUniform(const Eigen::Vector3f& val,
   CheckForOpenGLErrors();
 }
 
-void OpenGLRenderer::UploadShaderUniform(const Eigen::Vector2f& val,
-                                         const std::string& name) {
+void OpenGLContext::UploadShaderUniform(const Eigen::Vector2f& val,
+                                        const std::string& name) {
   glfwMakeContextCurrent(window_);
   glUseProgram(programs_[current_program_]);
   GLint location =
@@ -453,8 +443,8 @@ void OpenGLRenderer::UploadShaderUniform(const Eigen::Vector2f& val,
   CheckForOpenGLErrors();
 }
 
-void OpenGLRenderer::UploadShaderUniform(const float& val,
-                                         const std::string& name) {
+void OpenGLContext::UploadShaderUniform(const float& val,
+                                        const std::string& name) {
   glfwMakeContextCurrent(window_);
   glUseProgram(programs_[current_program_]);
   GLint location =
@@ -463,8 +453,8 @@ void OpenGLRenderer::UploadShaderUniform(const float& val,
   CheckForOpenGLErrors();
 }
 
-void OpenGLRenderer::UploadShaderUniform(const Eigen::Matrix4f& val,
-                                         const std::string& name) {
+void OpenGLContext::UploadShaderUniform(const Eigen::Matrix4f& val,
+                                        const std::string& name) {
   glfwMakeContextCurrent(window_);
   glUseProgram(programs_[current_program_]);
   GLint location =
@@ -473,8 +463,8 @@ void OpenGLRenderer::UploadShaderUniform(const Eigen::Matrix4f& val,
   CheckForOpenGLErrors();
 }
 
-void OpenGLRenderer::UploadShaderUniform(
-    const std::vector<Eigen::Matrix4f>& val, const std::string& name) {
+void OpenGLContext::UploadShaderUniform(const std::vector<Eigen::Matrix4f>& val,
+                                        const std::string& name) {
   glfwMakeContextCurrent(window_);
   glUseProgram(programs_[current_program_]);
   GLint location =
@@ -483,8 +473,8 @@ void OpenGLRenderer::UploadShaderUniform(
   CheckForOpenGLErrors();
 }
 
-void OpenGLRenderer::UploadShaderUniform(
-    const std::vector<Eigen::Vector3f>& val, const std::string& name) {
+void OpenGLContext::UploadShaderUniform(const std::vector<Eigen::Vector3f>& val,
+                                        const std::string& name) {
   glfwMakeContextCurrent(window_);
   glUseProgram(programs_[current_program_]);
   GLint location =
@@ -493,8 +483,7 @@ void OpenGLRenderer::UploadShaderUniform(
   CheckForOpenGLErrors();
 }
 
-bool OpenGLRenderer::CreateRenderBuffer(const int& datatype,
-                                        const int& format) {
+bool OpenGLContext::CreateRenderBuffer(const int& datatype, const int& format) {
   glfwMakeContextCurrent(window_);
   int internal_format;
   switch (datatype) {
@@ -593,11 +582,11 @@ bool OpenGLRenderer::CreateRenderBuffer(const int& datatype,
   return true;
 }
 
-bool OpenGLRenderer::UploadTextureInternal(void* data, const int& width,
-                                           const int& height, const int& format,
-                                           const int& datatype,
-                                           const int& internal_format,
-                                           const std::string& name) {
+bool OpenGLContext::UploadTextureInternal(void* data, const int& width,
+                                          const int& height, const int& format,
+                                          const int& datatype,
+                                          const int& internal_format,
+                                          const std::string& name) {
   glfwMakeContextCurrent(window_);
   CHECK(current_program_ >= 0) << "Did not call UseShader!";
   glUseProgram(programs_[current_program_]);
@@ -623,51 +612,50 @@ bool OpenGLRenderer::UploadTextureInternal(void* data, const int& width,
   return true;
 }
 
-GLuint OpenGLRenderer::GetTextureId(const std::string& name) const {
-	GLuint tex = textures_.at(name);
-	return tex;
+GLuint OpenGLContext::GetTextureId(const std::string& name) const {
+  GLuint tex = textures_.at(name);
+  return tex;
 }
 
-bool OpenGLRenderer::UploadTexture(const cv::Mat& image,
-                                   const std::string& name) {
-	cv::Mat dst;
-cv::flip(image, dst, 0);
+bool OpenGLContext::UploadTexture(const cv::Mat& image,
+                                  const std::string& name) {
+  cv::Mat dst;
+  cv::flip(image, dst, 0);
   if (dst.channels() == 3)
-	
-    return UploadTextureInternal(reinterpret_cast<void*>(dst.data),
-                                 dst.cols, dst.rows, GL_BGR,
-                                 GL_UNSIGNED_BYTE, GL_RGB8, name);
+
+    return UploadTextureInternal(reinterpret_cast<void*>(dst.data), dst.cols,
+                                 dst.rows, GL_BGR, GL_UNSIGNED_BYTE, GL_RGB8,
+                                 name);
   if (dst.channels() == 4)
-    return UploadTextureInternal(reinterpret_cast<void*>(dst.data),
-                                 dst.cols, dst.rows, GL_RGBA,
-                                 GL_UNSIGNED_BYTE, GL_RGBA8, name);
+    return UploadTextureInternal(reinterpret_cast<void*>(dst.data), dst.cols,
+                                 dst.rows, GL_RGBA, GL_UNSIGNED_BYTE, GL_RGBA8,
+                                 name);
   if (dst.channels() == 1)
-    return UploadTextureInternal(reinterpret_cast<void*>(dst.data),
-                                 dst.cols, dst.rows, GL_RED,
-                                 GL_UNSIGNED_BYTE, GL_R8, name);
+    return UploadTextureInternal(reinterpret_cast<void*>(dst.data), dst.cols,
+                                 dst.rows, GL_RED, GL_UNSIGNED_BYTE, GL_R8,
+                                 name);
   LOG(FATAL) << "Number of channels " << dst.channels()
              << " not implemented in UploadTexture.";
   return false;
 }
 
-bool OpenGLRenderer::UploadTexture(const DepthMap& depth,
-                                   const std::string& name) {
+bool OpenGLContext::UploadTexture(const DepthMap& depth,
+                                  const std::string& name) {
   return UploadTextureInternal((void*)depth.Depth().data, depth.Cols(),
                                depth.Rows(), GL_RED, GL_FLOAT, GL_R32F, name);
 }
 
-bool OpenGLRenderer::AllocateTextureArray(const std::string& name,
-                                          const int& width, const int& height,
-                                          const int& channels,
-                                          const int& num_elements) {
-
+bool OpenGLContext::AllocateTextureArray(const std::string& name,
+                                         const int& width, const int& height,
+                                         const int& channels,
+                                         const int& num_elements) {
   glfwMakeContextCurrent(window_);
   CHECK(current_program_ >= 0) << "Did not call UseShader!";
   glUseProgram(programs_[current_program_]);
- 
+
   int dim;
   glGetIntegerv(GL_MAX_3D_TEXTURE_SIZE, &dim);
-  
+
   LOG(INFO) << "Max 3d texture size: " << dim;
   glGetIntegerv(GL_MAX_ARRAY_TEXTURE_LAYERS, &dim);
   LOG(INFO) << "Max texture layers : " << dim;
@@ -681,7 +669,6 @@ bool OpenGLRenderer::AllocateTextureArray(const std::string& name,
   GLuint tex = textures_[name];
   glActiveTexture(GL_TEXTURE4 + textures_opengl_[name]);
   glBindTexture(GL_TEXTURE_2D_ARRAY, tex);
-
 
   switch (channels) {
     case 1:
@@ -702,7 +689,6 @@ bool OpenGLRenderer::AllocateTextureArray(const std::string& name,
       break;
   }
 
-
   glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
   glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
   glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
@@ -714,7 +700,7 @@ bool OpenGLRenderer::AllocateTextureArray(const std::string& name,
   return true;
 }
 
-bool OpenGLRenderer::UploadTextureToArrayInternal(
+bool OpenGLContext::UploadTextureToArrayInternal(
     const void* data, const std::string& name, const int& width,
     const int& height, const int& format, const int& index) {
   glfwMakeContextCurrent(window_);
@@ -730,23 +716,23 @@ bool OpenGLRenderer::UploadTextureToArrayInternal(
   return true;
 }
 
-bool OpenGLRenderer::UploadTextureToArray(const cv::Mat& image,
-                                          const std::string& name,
-                                          const int& index) {
-	cv::Mat dst;
-	cv::flip(image, dst, 0);
+bool OpenGLContext::UploadTextureToArray(const cv::Mat& image,
+                                         const std::string& name,
+                                         const int& index) {
+  cv::Mat dst;
+  cv::flip(image, dst, 0);
   switch (dst.channels()) {
     case 1:
-      return UploadTextureToArrayInternal(dst.data, name, dst.cols,
-		  dst.rows, GL_RED, index);
+      return UploadTextureToArrayInternal(dst.data, name, dst.cols, dst.rows,
+                                          GL_RED, index);
       break;
     case 3:
-      return UploadTextureToArrayInternal(dst.data, name, dst.cols,
-		  dst.rows, GL_RGB, index);
+      return UploadTextureToArrayInternal(dst.data, name, dst.cols, dst.rows,
+                                          GL_RGB, index);
       break;
     case 4:
-      return UploadTextureToArrayInternal(dst.data, name, dst.cols,
-		  dst.rows, GL_RGBA, index);
+      return UploadTextureToArrayInternal(dst.data, name, dst.cols, dst.rows,
+                                          GL_RGBA, index);
       break;
     default:
       LOG(FATAL) << "UploadTextureToArray not implemented for "
@@ -755,18 +741,18 @@ bool OpenGLRenderer::UploadTextureToArray(const cv::Mat& image,
   }
 }
 
-bool OpenGLRenderer::UploadTextureToArray(const DepthMap& depth,
-                                          const std::string& name,
-                                          const int& index) {
+bool OpenGLContext::UploadTextureToArray(const DepthMap& depth,
+                                         const std::string& name,
+                                         const int& index) {
   return UploadTextureToArrayInternal(depth.Depth().data, name, depth.Cols(),
                                       depth.Rows(), GL_RED, index);
 }
 
-bool OpenGLRenderer::SetViewpoint(const theia::Camera& camera) {
+bool OpenGLContext::SetViewpoint(const theia::Camera& camera) {
   return SetViewpoint(camera, 0.01f, 100.0f);
 }
 
-void OpenGLRenderer::SetViewportSize(const int& width, const int& height) {
+void OpenGLContext::SetViewportSize(const int& width, const int& height) {
   glfwMakeContextCurrent(window_);
   glViewport(0, 0, width, height);
   width_ = width;
@@ -775,8 +761,8 @@ void OpenGLRenderer::SetViewportSize(const int& width, const int& height) {
                     framebuffer_size_to_screen_coords_ * height);
 }
 
-bool OpenGLRenderer::SetViewpoint(const theia::Camera& camera,
-                                  const float& near, const float& far) {
+bool OpenGLContext::SetViewpoint(const theia::Camera& camera, const float& near,
+                                 const float& far) {
   glfwMakeContextCurrent(window_);
   CHECK(using_projection_matrix_[current_program_])
       << "Cannot call SetViewpoint on a fullscreen shader!";
@@ -812,26 +798,26 @@ bool OpenGLRenderer::SetViewpoint(const theia::Camera& camera,
   return true;
 }
 
-bool OpenGLRenderer::SetProjectionMatrix(const Eigen::Matrix4f& projection) {
-	glfwMakeContextCurrent(window_);
-	CHECK(using_projection_matrix_[current_program_])
-		<< "Cannot call SetViewpoint on a fullscreen shader!";
-	projection_ = projection;
+bool OpenGLContext::SetProjectionMatrix(const Eigen::Matrix4f& projection) {
+  glfwMakeContextCurrent(window_);
+  CHECK(using_projection_matrix_[current_program_])
+      << "Cannot call SetViewpoint on a fullscreen shader!";
+  projection_ = projection;
 
-	CHECK(current_program_ >= 0) << "Did not call UseShader!";
-	mvp_location_ = glGetUniformLocation(programs_[current_program_], "MVP");
-	glUseProgram(programs_[current_program_]);
+  CHECK(current_program_ >= 0) << "Did not call UseShader!";
+  mvp_location_ = glGetUniformLocation(programs_[current_program_], "MVP");
+  glUseProgram(programs_[current_program_]);
 
-	glUniformMatrix4fv(mvp_location_, 1, GL_FALSE,
-		(const GLfloat*)projection_.data());
-	CheckForOpenGLErrors();
-	return true;
+  glUniformMatrix4fv(mvp_location_, 1, GL_FALSE,
+                     (const GLfloat*)projection_.data());
+  CheckForOpenGLErrors();
+  return true;
 }
 
-bool OpenGLRenderer::UseShader(const int& shader_id) {
+bool OpenGLContext::UseShader(const int& shader_id) {
   glfwMakeContextCurrent(window_);
   if (shader_id >= 0 && shader_id < programs_.size()) {
-	  CheckForOpenGLErrors();
+    CheckForOpenGLErrors();
     current_program_ = shader_id;
     glUseProgram(programs_[current_program_]);
     return true;
@@ -839,7 +825,7 @@ bool OpenGLRenderer::UseShader(const int& shader_id) {
   return false;
 }
 
-void OpenGLRenderer::RenderToWindow() {
+void OpenGLContext::Render() {
   CHECK(is_initialized_);
   int width, height;
   glfwGetFramebufferSize(window_, &width, &height);
@@ -862,21 +848,21 @@ void OpenGLRenderer::RenderToWindow() {
   glViewport(0, 0, width_, height_);
 }
 
-void OpenGLRenderer::ShowWindow() {
+void OpenGLContext::ShowWindow() {
   glfwMakeContextCurrent(window_);
   if (!window_showing_) {
     glfwShowWindow(window_);
     window_showing_ = true;
-	CheckForOpenGLErrors();
+    CheckForOpenGLErrors();
   }
 }
 
-void OpenGLRenderer::HideWindow() {
+void OpenGLContext::HideWindow() {
   glfwMakeContextCurrent(window_);
   if (window_showing_) {
     glfwHideWindow(window_);
     window_showing_ = false;
-	CheckForOpenGLErrors();
+    CheckForOpenGLErrors();
   }
 }
 
@@ -922,8 +908,8 @@ int NumElements(const int& format) {
   }
 }
 
-void OpenGLRenderer::RenderToBufferInternal(void* buffer, const int& format,
-                                            const int& datatype) {
+void OpenGLContext::RenderToBufferInternal(void* buffer, const int& format,
+                                           const int& datatype) {
   glfwMakeContextCurrent(window_);
   if (!buffers_bound_[current_program_]) {
     CHECK(CreateRenderBuffer(datatype, format));
@@ -964,17 +950,17 @@ void OpenGLRenderer::RenderToBufferInternal(void* buffer, const int& format,
   CheckForOpenGLErrors();
 }
 
-void OpenGLRenderer::RenderToImage(TriangleIdMap* array) {
+void OpenGLContext::RenderToImage(TriangleIdMap* array) {
   glClearColor(1, 1, 1, 1);
   RenderToBufferInternal((void*)array->data(), GL_RED_INTEGER, GL_UNSIGNED_INT);
 }
 
-void OpenGLRenderer::RenderToImage(DepthMap* depth) {
+void OpenGLContext::RenderToImage(DepthMap* depth) {
   glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
   RenderToBufferInternal((void*)depth->Depth().data, GL_RED, GL_FLOAT);
 }
 
-void OpenGLRenderer::RenderToImage(cv::Mat* image) {
+void OpenGLContext::RenderToImage(cv::Mat* image) {
   glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
   if (image->cols != width_ || image->rows != height_) {
     cv::resize(*image, *image, cv::Size(width_, height_));
@@ -982,18 +968,18 @@ void OpenGLRenderer::RenderToImage(cv::Mat* image) {
 
   switch (image->channels()) {
     case 1:
-		CHECK(false);
+      CHECK(false);
       RenderToBufferInternal((void*)image->data, GL_RED, GL_UNSIGNED_BYTE);
       break;
     case 2:
-		CHECK(false);
+      CHECK(false);
       RenderToBufferInternal((void*)image->data, GL_RG, GL_UNSIGNED_BYTE);
       break;
     case 3:
       RenderToBufferInternal((void*)image->data, GL_RGB, GL_UNSIGNED_BYTE);
       break;
     case 4:
-		CHECK(false);
+      CHECK(false);
       RenderToBufferInternal((void*)image->data, GL_RGBA, GL_UNSIGNED_BYTE);
       break;
     default:

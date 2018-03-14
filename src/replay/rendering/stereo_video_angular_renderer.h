@@ -3,7 +3,7 @@
 
 #include "replay/depth_map/depth_map.h"
 #include "replay/mesh/mesh.h"
-#include "replay/rendering/opengl_renderer.h"
+#include "replay/rendering/vr_context.h"
 #include "replay/third_party/theia/sfm/camera/camera.h"
 #include "replay/vr_180/vr_180_video_reader.h"
 
@@ -17,17 +17,14 @@ namespace replay {
 
 class StereoVideoAngularRenderer {
  public:
-  explicit StereoVideoAngularRenderer(std::shared_ptr<OpenGLRenderer> renderer);
+  explicit StereoVideoAngularRenderer(std::shared_ptr<VRContext> renderer);
 
-  bool RenderEye(theia::Camera camera, const int eye_id,
-                 const Eigen::Vector3f& lookat);
-  bool RenderEye(Eigen::Matrix4f projection, const int width, const int height, const int eye_id,
-	  const Eigen::Matrix3f& rotation);
+  void Render();
 
   bool Initialize(const std::string& spherical_video_filename);
 
  private:
-  std::shared_ptr<OpenGLRenderer> renderer_;
+  std::shared_ptr<VRContext> renderer_;
   std::vector<Mesh> meshes_;
   int shader_id_;
   bool is_initialized_;

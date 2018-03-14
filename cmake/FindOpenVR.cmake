@@ -28,6 +28,7 @@ find_path(OPENVR_ROOT_DIR
 	PATH_SUFFIXES
 	${OPENVR_DIR}
 	"$ENV{PROGRAMFILES}"
+  "${CMAKE_SOURCE_DIR}/libraries/openvr/"
 )
 
 set(OPENVR_ROOT_DIR "${OPENVR_ROOT_DIR}/OpenVRSDK/")
@@ -36,15 +37,17 @@ find_path(OPENVR_INCLUDE_DIR
 	NAMES
 	openvr_driver.h
 	HINTS
-	include
-	headers
+	include/
+	headers/
 	PATHS
+  ${CMAKE_SOURCE_DIR}/libraries/openvr/headers/
 	${OPENVR_ROOT_DIR}
 	PATH_SUFFIXES
 	headers
 	public/headers
 	steam
-	public/steam)
+	public/steam
+  )
 
 find_library( OPENVR_LIBRARY
             NAMES
