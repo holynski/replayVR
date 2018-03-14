@@ -25,7 +25,7 @@ int main(int argc, char **argv) {
 
 
   while (true) {
-    renderer->Render();
+	  stereo_renderer.Render();
   }
   return 0;
 }

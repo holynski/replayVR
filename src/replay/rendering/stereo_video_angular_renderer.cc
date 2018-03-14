@@ -13,10 +13,6 @@ namespace {
 static const std::string vertex_source =
     "#version 410\n"
     "uniform mat4 MVP;\n"
-    "uniform mat4 left_projection;\n"
-    "uniform mat4 right_projection;\n"
-    "// For this shader we don't want to incorporate the pose, so we upload "
-    "// the projection matrix separately"
     "in vec3 vert;"
     "in vec2 uv;"
     "out vec3 pos;"
@@ -26,12 +22,11 @@ static const std::string vertex_source =
     "{\n"
     "    pos = vert;"
     "    frag_uv = uv;"
+    "         gl_Position = MVP * vec4(vert, 1.0);\n"
     "    if (right == 0) {"
-    "         gl_Position = left_projection * vec4(vert, 1.0);\n"
     "         frag_uv.x *= 0.5;"
     "    }"
     "    else {"
-    "    gl_Position = right_projection * vec4(vert, 1.0);\n"
     "         frag_uv.x *= 0.5;"
     "         frag_uv.x += 0.5;"
     "    }"
@@ -53,6 +48,7 @@ static const std::string fragment_source =
     "color = vec3(0, 0, 1);"
     "    if (length(vec2(0.25,0.5) - frag_uv) < 0.005 && frag_uv.x < 0.5) "
     "color = vec3(0, 0, 1);"
+	"color = vec3(normalize(frag_uv), 1);"
     "}\n";
 }  // namespace
 
@@ -147,8 +143,10 @@ void StereoVideoAngularRenderer::Render() {
   CHECK(is_initialized_) << "Initialize renderer first.";
   CHECK(renderer_->UseShader(shader_id_));
 
+  renderer_->UpdatePose();
   Eigen::Matrix3f hmd_rotation =
       renderer_->GetHMDPose().block(0, 0, 3, 3).transpose();
+
 
   int best_frame = -1;
   double best_score = -1;
@@ -165,7 +163,7 @@ void StereoVideoAngularRenderer::Render() {
   Eigen::Matrix4f mvp = Eigen::Matrix4f::Identity();
   Eigen::Matrix3f inverse_frame_rotation =
       frame_rotations_[best_frame].inverse();
-  mvp.block(0, 0, 3, 3) *= hmd_rotation * inverse_frame_rotation;
+ // mvp.block(0, 0, 3, 3) *= hmd_rotation * inverse_frame_rotation;
 
   renderer_->UploadShaderUniform(best_frame, "image_index");
   renderer_->UploadMesh(meshes_[0]);

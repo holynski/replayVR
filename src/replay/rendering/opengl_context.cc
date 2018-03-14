@@ -215,30 +215,38 @@ bool OpenGLContext::CompileAndLinkShaders(const std::string& vertex,
 }
 
 bool OpenGLContext::CompileFullScreenShader(const std::string& fragment,
-                                            int* shader_id) {
-  // Create a full-screen mesh. Upload this mesh so that it clears all vertex
-  // and element buffers.
-  Mesh single_triangle_mesh;
-  single_triangle_mesh.AddVertex(Eigen::Vector3f(-1, -1, 0));
-  single_triangle_mesh.AddVertex(Eigen::Vector3f(3, -1, 0));
-  single_triangle_mesh.AddVertex(Eigen::Vector3f(-1, 3, 0));
-  single_triangle_mesh.AddTriangleFace(0, 1, 2);
-  CHECK(UploadMesh(single_triangle_mesh));
+	int* shader_id) {
+	// Create a full-screen mesh. Upload this mesh so that it clears all vertex
+	// and element buffers.
+	Mesh single_triangle_mesh;
+	single_triangle_mesh.AddVertex(Eigen::Vector3f(-1, -1, 0));
+	single_triangle_mesh.AddVertex(Eigen::Vector3f(3, -1, 0));
+	single_triangle_mesh.AddVertex(Eigen::Vector3f(-1, 3, 0));
+	single_triangle_mesh.AddTriangleFace(0, 1, 2);
 
-  // Load the full screen vertex shader to a string.
-  static const std::string full_screen_vs =
-      "#version 410\n"
-      "uniform mat4 MVP;\n"
-      "uniform float negative;\n"
-      "in vec3 vert;\n"
-      "void main()\n"
-      "{\n"
-      "  gl_Position = vec4(vert.x, vert.y * negative, vert.z, 1.0);\n"
-      "}\n";
-  using_projection_matrix_.push_back(false);
+	// Load the full screen vertex shader to a string.
+	static const std::string full_screen_vs =
+		"#version 410\n"
+		"uniform mat4 MVP;\n"
+		"uniform float negative;\n"
+		"in vec3 vert;\n"
+		"void main()\n"
+		"{\n"
+		"  gl_Position = vec4(vert.x, vert.y * negative, vert.z, 1.0);\n"
+		"}\n";
+	using_projection_matrix_.push_back(false);
 
-  // Compile and link the shaders per usual.
-  return CompileAndLinkShaders(full_screen_vs, fragment, shader_id);
+	// Compile and link the shaders per usual.
+	if (!CompileAndLinkShaders(full_screen_vs, fragment, shader_id)) {
+		return false;
+	}
+	UseShader(*shader_id);
+	if (!UploadMesh(single_triangle_mesh))
+	{
+		return false;
+	}
+
+  return true;
 }
 
 bool OpenGLContext::IsInitialized() const { return is_initialized_; }
