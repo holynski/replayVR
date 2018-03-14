@@ -3,10 +3,10 @@
 #include <Eigen/Dense>
 #include "replay/depth_map/depth_map.h"
 #include "replay/mesh/mesh.h"
+#include "replay/rendering/vr_context.h"
 #include "replay/third_party/theia/sfm/types.h"
 #include "replay/util/types.h"
 #include "replay/vr_180/vr_180_video_reader.h"
-#include "replay/rendering/vr_context.h"
 
 namespace replay {
 namespace {
@@ -49,8 +49,10 @@ static const std::string fragment_source =
     "{\n"
     "    color = texture(left, vec2(0,0)).rgb + texture(right, vec2(0,0)).rgb;"
     "    color = texture(images, vec3(frag_uv, image_index)).rgb;"
-	"    if (length(vec2(0.75,0.5) - frag_uv) < 0.005 && frag_uv.x > 0.5) color = vec3(0, 0, 1);"
-	"    if (length(vec2(0.25,0.5) - frag_uv) < 0.005 && frag_uv.x < 0.5) color = vec3(0, 0, 1);"
+    "    if (length(vec2(0.75,0.5) - frag_uv) < 0.005 && frag_uv.x > 0.5) "
+    "color = vec3(0, 0, 1);"
+    "    if (length(vec2(0.25,0.5) - frag_uv) < 0.005 && frag_uv.x < 0.5) "
+    "color = vec3(0, 0, 1);"
     "}\n";
 }  // namespace
 
@@ -105,7 +107,7 @@ bool StereoVideoAngularRenderer::Initialize(
   CHECK(renderer_->UseShader(shader_id_));
   renderer_->AllocateTextureArray("images", reader_.GetWidth(),
                                   reader_.GetHeight(), image.channels(),
-                                  number_of_frames);
+                                  number_of_frames, number_of_frames > 100);
   frame_lookats_ =
       std::vector<Eigen::Vector3f>(number_of_frames, Eigen::Vector3f(0, 0, 0));
   frame_upvecs_ = std::vector<Eigen::Vector3f>(number_of_frames);
@@ -114,26 +116,26 @@ bool StereoVideoAngularRenderer::Initialize(
 
   int index = 0;
   while (reader_.GetOrientedFrame(image, angle)) {
-	  if (index == number_of_frames) {
-		  break;
-	  }
-	  
+    if (index == number_of_frames) {
+      break;
+    }
 
-    AngleAxisToLookAtUpvec(angle, frame_lookats_[index], frame_upvecs_[index], frame_rotations_[index]);
-	bool skip_this_frame = false;
-	for (int i = 0; i < index; i++) {
-		if (frame_lookats_[i].dot(frame_lookats_[index]) > 0.7) {
-			skip_this_frame = true;
-			break;
-		}
-	}
-	if (skip_this_frame) {
-		LOG(INFO) << "Skipping frame!";
-		frame_lookats_[index] = Eigen::Vector3f(0, 0, 0);
-		continue;
-	}
-	renderer_->UploadTextureToArray(image, "images", index);
-        index++;
+    AngleAxisToLookAtUpvec(angle, frame_lookats_[index], frame_upvecs_[index],
+                           frame_rotations_[index]);
+    bool skip_this_frame = false;
+    for (int i = 0; i < index; i++) {
+      if (frame_lookats_[i].dot(frame_lookats_[index]) > 0.7) {
+        skip_this_frame = true;
+        break;
+      }
+    }
+    if (skip_this_frame) {
+      LOG(INFO) << "Skipping frame!";
+      frame_lookats_[index] = Eigen::Vector3f(0, 0, 0);
+      continue;
+    }
+    renderer_->UploadTextureToArray(image, "images", index);
+    index++;
   }
 
   LOG(INFO) << "Done";
@@ -145,8 +147,8 @@ void StereoVideoAngularRenderer::Render() {
   CHECK(is_initialized_) << "Initialize renderer first.";
   CHECK(renderer_->UseShader(shader_id_));
 
-  
-  Eigen::Matrix3f hmd_rotation = renderer_->GetHMDPose().block(0,0,3,3).transpose();
+  Eigen::Matrix3f hmd_rotation =
+      renderer_->GetHMDPose().block(0, 0, 3, 3).transpose();
 
   int best_frame = -1;
   double best_score = -1;
@@ -161,19 +163,19 @@ void StereoVideoAngularRenderer::Render() {
   CHECK_GE(best_frame, 0);
 
   Eigen::Matrix4f mvp = Eigen::Matrix4f::Identity();
-  Eigen::Matrix3f inverse_frame_rotation = frame_rotations_[best_frame].inverse();
+  Eigen::Matrix3f inverse_frame_rotation =
+      frame_rotations_[best_frame].inverse();
   mvp.block(0, 0, 3, 3) *= hmd_rotation * inverse_frame_rotation;
 
   renderer_->UploadShaderUniform(best_frame, "image_index");
   renderer_->UploadMesh(meshes_[0]);
   renderer_->SetProjectionMatrix(renderer_->GetProjectionMatrix(0) * mvp);
-	renderer_->UploadShaderUniform(0, "right");
+  renderer_->UploadShaderUniform(0, "right");
   renderer_->RenderEye(0);
   renderer_->UploadMesh(meshes_[1]);
   renderer_->SetProjectionMatrix(renderer_->GetProjectionMatrix(1) * mvp);
-	renderer_->UploadShaderUniform(1, "right");
+  renderer_->UploadShaderUniform(1, "right");
   renderer_->RenderEye(1);
-
 }
 
 }  // namespace replay
