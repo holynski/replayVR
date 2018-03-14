@@ -648,7 +648,8 @@ bool OpenGLContext::UploadTexture(const DepthMap& depth,
 bool OpenGLContext::AllocateTextureArray(const std::string& name,
                                          const int& width, const int& height,
                                          const int& channels,
-                                         const int& num_elements) {
+                                         const int& num_elements,
+                                         const bool compressed) {
   glfwMakeContextCurrent(window_);
   CHECK(current_program_ >= 0) << "Did not call UseShader!";
   glUseProgram(programs_[current_program_]);
@@ -672,16 +673,19 @@ bool OpenGLContext::AllocateTextureArray(const std::string& name,
 
   switch (channels) {
     case 1:
-      glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RED, width, height, num_elements,
-                   0, GL_RED, GL_UNSIGNED_BYTE, NULL);
+      glTexImage3D(GL_TEXTURE_2D_ARRAY, 0,
+                   (compressed ? GL_COMPRESSED_RED : GL_RED), width, height,
+                   num_elements, 0, GL_RED, GL_UNSIGNED_BYTE, NULL);
       break;
     case 3:
-      glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGB, width, height, num_elements,
-                   0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+      glTexImage3D(GL_TEXTURE_2D_ARRAY, 0,
+                   (compressed ? GL_COMPRESSED_RGB : GL_RGB), width, height,
+                   num_elements, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
       break;
     case 4:
-      glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGBA, width, height, num_elements,
-                   0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+      glTexImage3D(GL_TEXTURE_2D_ARRAY, 0,
+                   (compressed ? GL_COMPRESSED_RGBA : GL_RGBA), width, height,
+                   num_elements, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
       break;
     default:
       LOG(FATAL) << "Texture array of " << channels

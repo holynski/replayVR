@@ -5,10 +5,10 @@
 #define GLFW_INCLUDE_GLCOREARB
 #elif defined(__linux__) || defined(__unix__) || defined(__posix__)
 #include <GL/glew.h>
-#else 
+#else
 //#include <windows.h>
-#  include <GL/glew.h>
-#  include <GL/gl.h>
+#include <GL/gl.h>
+#include <GL/glew.h>
 
 #endif  // __APPLE__
 #include <GLFW/glfw3.h>
@@ -17,9 +17,9 @@
 
 #include "replay/depth_map/depth_map.h"
 #include "replay/mesh/mesh.h"
-#include "replay/util/row_array.h"
 #include "replay/mesh/triangle_id_map.h"
 #include "replay/third_party/theia/sfm/camera/camera.h"
+#include "replay/util/row_array.h"
 
 namespace replay {
 
@@ -195,8 +195,8 @@ class OpenGLContext {
   // Returns false if the image could not be uploaded. This may happen if the
   // the index specified is too large for the allocated space or the image size
   // is too large.
-  bool UploadTextureToArray(const cv::Mat& image,
-                            const std::string& name, const int& index);
+  bool UploadTextureToArray(const cv::Mat& image, const std::string& name,
+                            const int& index);
   bool UploadTextureToArray(const DepthMap& depth_map, const std::string& name,
                             const int& index);
 
@@ -212,9 +212,14 @@ class OpenGLContext {
   // Num_elements define the number of images which will be held in the array.
   //
   // The shader must contain "uniform sampler2DArray <name>".
+  //
+  // The final argument will define whether the textures uploaded to this array
+  // will be compressed. If supported by the driver, this will cause texture
+  // upload to be slower, but textures will be much smaller in size.
   bool AllocateTextureArray(const std::string& name, const int& width,
                             const int& height, const int& channels,
-                            const int& num_elements);
+                            const int& num_elements,
+                            const bool compressed = false);
 
   // Renders a frame using the given shader, mesh, and uniforms to an image in
   // memory.
