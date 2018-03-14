@@ -43,6 +43,8 @@ static const std::string fragment_source =
     "{\n"
 	"    color = texture(left, vec2(0,0)).rgb + texture(right, vec2(0,0)).rgb;"
     "    color = texture(images, vec3(frag_uv, image_index)).rgb;"
+	"    if (length(vec2(0.75,0.5) - frag_uv) < 0.005 && frag_uv.x > 0.5) color = vec3(0, 0, 1);"
+	"    if (length(vec2(0.25,0.5) - frag_uv) < 0.005 && frag_uv.x < 0.5) color = vec3(0, 0, 1);"
     "}\n";
 }  // namespace
 
@@ -103,7 +105,7 @@ bool StereoVideoAngularRenderer::Initialize(
   cv::Mat3b image;
   Eigen::Vector3f angle;
 
-  static const int number_of_frames = 100;
+  static const int number_of_frames = 3;
 
   CHECK(renderer_->UseShader(shader_id_));
   renderer_->AllocateTextureArray("images", reader_.GetWidth(), reader_.GetHeight(),
@@ -119,9 +121,21 @@ bool StereoVideoAngularRenderer::Initialize(
 		  break;
 	  }
 	  
-    CHECK_LT(index, number_of_frames);
-    renderer_->UploadTextureToArray(image, "images", index);
+
     AngleAxisToLookAtUpvec(angle, frame_lookats_[index], frame_upvecs_[index], frame_rotations_[index]);
+	bool skip_this_frame = false;
+	for (int i = 0; i < index; i++) {
+		if (frame_lookats_[i].dot(frame_lookats_[index]) > 0.7) {
+			skip_this_frame = true;
+			break;
+		}
+	}
+	if (skip_this_frame) {
+		LOG(INFO) << "Skipping frame!";
+		frame_lookats_[index] = Eigen::Vector3f(0, 0, 0);
+		continue;
+	}
+	renderer_->UploadTextureToArray(image, "images", index);
         index++;
   }
 
@@ -148,7 +162,7 @@ bool StereoVideoAngularRenderer::RenderEye(theia::Camera camera,
 
   int best_frame = -1;
   double best_score = -1;
-  for (int i = 0; i < frame_lookats_.size(); i++) {
+  for (int i = 0; i < 2; i++) {
     const double score = lookat.dot(frame_lookats_[i]);
     if (score > best_score) {
       best_score = score;
@@ -193,33 +207,7 @@ bool StereoVideoAngularRenderer::RenderEye(Eigen::Matrix4f projection, const int
 	CHECK(renderer_->UseShader(shader_id_));
 
 	Eigen::Matrix3f new_rotation = rotation;
-	new_rotation = rotation.inverse();
-	//float yaw = atan2(rotation.coeff(2, 1), rotation.coeff(2, 2)); //rotation about X
-	//float pitch = atan2(-rotation.coeff(2, 0), sqrt(pow(rotation.coeff(2, 1), 2) + pow(rotation.coeff(2, 2), 2))); //rotation about Y
-	//float roll = atan2(rotation.coeff(1, 0), rotation.coeff(0, 0)); //rotation about Z
-
-	//LOG(INFO) << yaw << " " << pitch << " " << roll;
-	////yaw *= -1;
-
-	//Eigen::Matrix3f x_rotation;
-	//Eigen::Matrix3f y_rotation;
-	//Eigen::Matrix3f z_rotation;
-	//x_rotation << 1, 0, 0, 0, cos(yaw), -sin(yaw), 0, sin(yaw), cos(yaw);
-	//y_rotation << cos(pitch), 0, sin(pitch), 0, 1, 0, -sin(pitch), 0, cos(pitch);
-	//z_rotation << cos(roll), -sin(roll), 0, sin(roll), cos(roll), 0, 0, 0, 1;
-	//new_rotation = z_rotation * y_rotation * x_rotation;
-	//new_rotation = new_rotation.inverse();
-
-	// 12
-	// 8
-	// 6
-	// 1
-	// 2
-
-	Eigen::Matrix3f coordinate_change;
-	coordinate_change.setIdentity();
-	coordinate_change.row(1) *= -1;
-		coordinate_change.row(2) *= -1;
+	new_rotation = rotation.transpose();
 
 	int best_frame = -1;
 	double best_score = -1;
@@ -259,7 +247,6 @@ bool StereoVideoAngularRenderer::RenderEye(Eigen::Matrix4f projection, const int
 
 	//renderer_->RenderToWindow();
 	renderer_->RenderToImage(&image_);
-	cv::imshow("test" + std::to_string(eye_id), image_);
 
 	renderer_->UploadTexture(image_, eye_id == 0 ? "left" : "right");
 	vr::Texture_t eye_texture = { (void*)(uintptr_t)renderer_->GetTextureId(eye_id == 0 ? "left" : "right"), vr::TextureType_OpenGL, vr::ColorSpace_Gamma };
