@@ -7,8 +7,8 @@
 #include <GL/glew.h>
 #else
 //#include <windows.h>
-#include <GL/glew.h>
 #include <GL/gl.h>
+#include <GL/glew.h>
 
 #endif  // __APPLE__
 #include <GLFW/glfw3.h>
