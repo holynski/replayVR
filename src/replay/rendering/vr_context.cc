@@ -14,10 +14,10 @@ static const std::string companion_fragment =
     "void main()\n"
     "{\n"
     "    if (gl_FragCoord.x > 0.5) {"
-    "       color = texture(left, vec2(gl_FragCoord.x * 2, gl_FragCoord.y).rgb;"
+	"       color = texture(left, vec2(gl_FragCoord.x * 2, gl_FragCoord.y)).rgb;"
     "}"
     "    else {"
-    "       color = texture(right, vec2(gl_FragCoord.x * 2, gl_FragCoord.y).rgb;"
+	"       color = texture(right, vec2(gl_FragCoord.x * 2, gl_FragCoord.y)).rgb;"
     "}"
     "}\n";
 }  // namespace
@@ -77,13 +77,14 @@ bool VRContext::Initialize() {
   if (hmd_index_ < 0) {
     return false;
   }
+  is_initialized_ = true;
 
   // Compile companion window shader
-  if (!CompileFullScreenShader(companion_fragment, &companion_window_shader_)) {
-    return false;
-  }
+//  if (!CompileFullScreenShader(companion_fragment, &companion_window_shader_)) {
+//    return false;
+//  }
 
-  is_initialized_ = true;
+
 
   return true;
 }
@@ -153,8 +154,8 @@ void VRContext::RenderEye(const int eye_id) {
   RenderToImage(&image_);
 
   
-  const int shader = current_program_;
-  UseShader(companion_window_shader_);
+//  const int shader = current_program_;
+ // UseShader(companion_window_shader_);
   SetViewportSize(companion_width_, companion_height_);
   const std::string eye_name = (eye_id == 0 ? "left" : "right");
   UploadTexture(image_, eye_name);
@@ -167,6 +168,6 @@ void VRContext::RenderEye(const int eye_id) {
   }
 
   // Return to the shader that was being used before the function was called
-  UseShader(shader);
+//  UseShader(shader);
 }
 }  // namespace replay
