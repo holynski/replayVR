@@ -764,13 +764,16 @@ bool OpenGLContext::SetViewpoint(const theia::Camera& camera) {
   return SetViewpoint(camera, 0.01f, 100.0f);
 }
 
-void OpenGLContext::SetViewportSize(const int& width, const int& height) {
+void OpenGLContext::SetViewportSize(const int& width, const int& height, const bool resize_window) {
   glfwMakeContextCurrent(window_);
   glViewport(0, 0, width, height);
   width_ = width;
   height_ = height;
-  glfwSetWindowSize(window_, framebuffer_size_to_screen_coords_ * width,
-                    framebuffer_size_to_screen_coords_ * height);
+  if (resize_window) {
+	  glfwSetWindowSize(window_, framebuffer_size_to_screen_coords_ * width,
+		  framebuffer_size_to_screen_coords_ * height);
+  }
+
 }
 
 bool OpenGLContext::SetViewpoint(const theia::Camera& camera, const float& near,

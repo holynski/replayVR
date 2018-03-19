@@ -137,7 +137,7 @@ bool StereoVideoAngularRenderer::Initialize(
 void StereoVideoAngularRenderer::Render() {
   CHECK(is_initialized_) << "Initialize renderer first.";
   CHECK(renderer_->UseShader(shader_id_));
-
+  renderer_->ToggleCompanionWindow(true);
   renderer_->UpdatePose();
   Eigen::Matrix3f hmd_rotation =
       renderer_->GetHMDPose().block(0, 0, 3, 3).transpose();

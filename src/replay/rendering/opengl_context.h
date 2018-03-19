@@ -152,12 +152,12 @@ class OpenGLContext {
   bool SetViewpoint(const theia::Camera& camera);
   bool SetViewpoint(const theia::Camera& camera, const float& near,
                     const float& far);
+  
+  // If not using the above SetViewpoint functions, you may instead use these two 
+  // functions, setting the MVP matrix manually, and adjusting the viewport (and window) 
+  // size. 
   bool SetProjectionMatrix(const Eigen::Matrix4f& projection);
-
-  // Sets the size of the render viewport. It is not necessary to call this
-  // function if SetViewpoint has been called. This function is used primarily
-  // for setting the size of compute shaders or multi-sampling pixels.
-  void SetViewportSize(const int& width, const int& height);
+  void SetViewportSize(const int& width, const int& height, const bool resize_window = true);
 
   // Uploads values to the shader. It is expected that these values correspond
   // in type and name to uniforms defined in the shader.

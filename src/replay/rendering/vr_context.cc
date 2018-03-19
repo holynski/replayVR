@@ -78,9 +78,9 @@ bool VRContext::Initialize() {
   is_initialized_ = true;
 
   // Compile companion window shader
-//  if (!CompileFullScreenShader(companion_fragment, &companion_window_shader_)) {
-//    return false;
-//  }
+  if (!CompileFullScreenShader(companion_fragment, &companion_window_shader_)) {
+    return false;
+  }
 
 
 
@@ -143,7 +143,7 @@ void VRContext::RenderEye(const int eye_id) {
   DCHECK_LE(eye_id, 1);
   DCHECK_GE(eye_id, 0);
 
-  SetViewportSize(hmd_viewport_width_, hmd_viewport_height_);
+  SetViewportSize(hmd_viewport_width_, hmd_viewport_height_, false);
 
   if (image_.empty()) {
     image_ = cv::Mat3b(1, 1);
@@ -152,8 +152,8 @@ void VRContext::RenderEye(const int eye_id) {
   RenderToImage(&image_);
 
   
-//  const int shader = current_program_;
- // UseShader(companion_window_shader_);
+  const int shader = current_program_;
+  UseShader(companion_window_shader_);
   SetViewportSize(companion_width_, companion_height_);
   const std::string eye_name = (eye_id == 0 ? "left" : "right");
   UploadTexture(image_, eye_name);
@@ -170,6 +170,6 @@ void VRContext::RenderEye(const int eye_id) {
   }
 
   // Return to the shader that was being used before the function was called
-//  UseShader(shader);
+  UseShader(shader);
 }
 }  // namespace replay
