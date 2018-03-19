@@ -44,11 +44,6 @@ static const std::string fragment_source =
     "{\n"
     "    color = texture(left, vec2(0,0)).rgb + texture(right, vec2(0,0)).rgb;"
     "    color = texture(images, vec3(frag_uv, image_index)).rgb;"
-    "    if (length(vec2(0.75,0.5) - frag_uv) < 0.005 && frag_uv.x > 0.5) "
-    "color = vec3(0, 0, 1);"
-    "    if (length(vec2(0.25,0.5) - frag_uv) < 0.005 && frag_uv.x < 0.5) "
-    "color = vec3(0, 0, 1);"
-	"color = vec3(normalize(frag_uv), 1);"
     "}\n";
 }  // namespace
 
@@ -163,15 +158,19 @@ void StereoVideoAngularRenderer::Render() {
   Eigen::Matrix4f mvp = Eigen::Matrix4f::Identity();
   Eigen::Matrix3f inverse_frame_rotation =
       frame_rotations_[best_frame].inverse();
- // mvp.block(0, 0, 3, 3) *= hmd_rotation * inverse_frame_rotation;
+  mvp.block(0, 0, 3, 3) *= hmd_rotation * inverse_frame_rotation;
+  
+  Eigen::Matrix4f mvp_left = renderer_->GetProjectionMatrix(0) * mvp;
+  LOG(INFO) << mvp_left;
+  Eigen::Matrix4f mvp_right = renderer_->GetProjectionMatrix(1) * mvp;
 
   renderer_->UploadShaderUniform(best_frame, "image_index");
   renderer_->UploadMesh(meshes_[0]);
-  renderer_->SetProjectionMatrix(renderer_->GetProjectionMatrix(0) * mvp);
+  renderer_->SetProjectionMatrix(mvp_left);
   renderer_->UploadShaderUniform(0, "right");
   renderer_->RenderEye(0);
   renderer_->UploadMesh(meshes_[1]);
-  renderer_->SetProjectionMatrix(renderer_->GetProjectionMatrix(1) * mvp);
+  renderer_->SetProjectionMatrix(mvp_right);
   renderer_->UploadShaderUniform(1, "right");
   renderer_->RenderEye(1);
 }

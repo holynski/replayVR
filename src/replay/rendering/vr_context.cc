@@ -51,14 +51,12 @@ bool VRContext::Initialize() {
   // Retrieve and store the projection matrices for each eye, assuming that they
   // won't be changing during the scope of this VRContext object.
   vr::HmdMatrix44_t mat = hmd_->GetProjectionMatrix(vr::Eye_Left, 0.01, 2);
-
-  Eigen::Matrix4f left_projection_;
   left_projection_ << mat.m[0][0], mat.m[0][1], mat.m[0][2], mat.m[0][3],
       mat.m[1][0], mat.m[1][1], mat.m[1][2], mat.m[1][3], mat.m[2][0],
       mat.m[2][1], mat.m[2][2], mat.m[2][3], mat.m[3][0], mat.m[3][1],
       mat.m[3][2], mat.m[3][3];
+
   mat = hmd_->GetProjectionMatrix(vr::Eye_Right, 0.01, 2);
-  Eigen::Matrix4f right_projection_;
   right_projection_ << mat.m[0][0], mat.m[0][1], mat.m[0][2], mat.m[0][3],
       mat.m[1][0], mat.m[1][1], mat.m[1][2], mat.m[1][3], mat.m[2][0],
       mat.m[2][1], mat.m[2][2], mat.m[2][3], mat.m[3][0], mat.m[3][1],
@@ -163,6 +161,10 @@ void VRContext::RenderEye(const int eye_id) {
                                vr::TextureType_OpenGL, vr::ColorSpace_Gamma};
   vr::VRCompositor()->Submit(eye_id == 0 ? vr::Eye_Left : vr::Eye_Right,
                              &eye_texture);
+  int error = glGetError();
+  if (error != 0) {
+	  LOG(ERROR) << "VR Compositor caused OpenGL error " << error << " upon Submit()";
+  }
   if (companion_window_enabled_) {
     OpenGLContext::Render();
   }
