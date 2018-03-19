@@ -111,7 +111,7 @@ int Mesh::ValenceOfVertex(const VertexId vertex_id) const {
 bool Mesh::IsVertexOnBoundary(const VertexId vertex_id) const {
   return mesh_.is_border(VertexIndex(vertex_id));
 }
-
+ 
 bool Mesh::IsFaceOnBoundary(const TriangleFaceId face_id) const {
   for (const auto& vertex :
        CGAL::vertices_around_face(mesh_.halfedge(FaceIndex(face_id)), mesh_)) {
