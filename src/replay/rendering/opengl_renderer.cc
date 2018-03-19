@@ -689,7 +689,7 @@ bool OpenGLRenderer::AllocateTextureArray(const std::string& name,
                    0, GL_RED, GL_UNSIGNED_BYTE, NULL);
       break;
     case 3:
-      glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGB, width, height, num_elements,
+      glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_COMPRESSED_RGB, width, height, num_elements,
                    0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
       break;
     case 4:

@@ -7,7 +7,7 @@
 #include "replay/rendering/stereo_video_angular_renderer.h"
 #include "openvr.h"
 
-DEFINE_string(video_file, "", "Spherical video file to parse");
+DEFINE_string(video_file, "C:/Users/holynski/Documents/datasets/tests/crutches3.mp4", "Spherical video file to parse");
 
 int main(int argc, char** argv) {
   google::InitGoogleLogging(argv[0]);
@@ -76,7 +76,7 @@ int main(int argc, char** argv) {
 		  }
 
 	  }
-  
+	  
   while (true) {
 	  vr::VRCompositor()->WaitGetPoses(tracked_device_pose, vr::k_unMaxTrackedDeviceCount, NULL, 0);
 
@@ -84,14 +84,9 @@ int main(int argc, char** argv) {
 	  Eigen::Matrix3f rotation;
 	  rotation << abs_tracking.m[0][0], abs_tracking.m[0][1], abs_tracking.m[0][2], abs_tracking.m[1][0], abs_tracking.m[1][1], abs_tracking.m[1][2], abs_tracking.m[2][0], abs_tracking.m[2][1], abs_tracking.m[2][2];
 	 // Eigen::Vector3f tracked(abs_tracking.m[2][0], abs_tracking.m[2][1], abs_tracking.m[2][2]);
-	
 	  stereo_renderer.RenderEye(projection_left, width, height, 0, rotation);
 	  stereo_renderer.RenderEye(projection_right, width, height, 1, rotation);
-    int keyvalue = cv::waitKey(1);
 
-	if (keyvalue == ' ') {
-		break;
-	}
   }
   return 0;
 }

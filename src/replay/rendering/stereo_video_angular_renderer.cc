@@ -103,7 +103,7 @@ bool StereoVideoAngularRenderer::Initialize(
   cv::Mat3b image;
   Eigen::Vector3f angle;
 
-  static const int number_of_frames = 100;
+  static const int number_of_frames = 600;
 
   CHECK(renderer_->UseShader(shader_id_));
   renderer_->AllocateTextureArray("images", reader_.GetWidth(), reader_.GetHeight(),
@@ -120,8 +120,19 @@ bool StereoVideoAngularRenderer::Initialize(
 	  }
 	  
     CHECK_LT(index, number_of_frames);
-    renderer_->UploadTextureToArray(image, "images", index);
+    
     AngleAxisToLookAtUpvec(angle, frame_lookats_[index], frame_upvecs_[index], frame_rotations_[index]);
+	bool skip_frame = false;
+	for (int i = 0; i < index; i ++) {
+		if (angle.dot(frame_lookats_[index]) > 0.8 && index - i > 100) {
+			skip_frame = true;
+		}
+	}
+	if (skip_frame) {
+		frame_lookats_[index] = Eigen::Vector3f(0, 0, 0);
+		continue;
+	}
+	renderer_->UploadTextureToArray(image, "images", index);
         index++;
   }
 
@@ -175,7 +186,6 @@ bool StereoVideoAngularRenderer::RenderEye(theia::Camera camera,
   //renderer_->ShowWindow();
   //renderer_->RenderToWindow();
   renderer_->RenderToImage(&image_);
-  cv::imshow("test" + std::to_string(eye_id), image_);
   //cv::imwrite("/Users/holynski/testimageleft.png", image);
   
   renderer_->UploadTexture(image_, eye_id == 0 ? "left" : "right");
@@ -193,6 +203,30 @@ bool StereoVideoAngularRenderer::RenderEye(Eigen::Matrix4f projection, const int
 	CHECK(renderer_->UseShader(shader_id_));
 
 	Eigen::Matrix3f new_rotation = rotation;
+	new_rotation = rotation.transpose();
+
+	int best_frame = -1;
+	double best_score = -1;
+	const Eigen::Vector3f lookat = new_rotation.col(2);
+	for (int i = 0; i < frame_lookats_.size(); i++) {
+		const double score = lookat.dot(frame_lookats_[i]);
+		if (score > best_score) {
+			best_score = score;
+			best_frame = i;
+		}
+	}
+	LOG(INFO) << "Using: " << std::setprecision(1) << lookat[0] << " " << lookat[1] << " " << lookat[2];
+	LOG(INFO) << "Found: " << std::setprecision(1) << frame_lookats_[best_frame][0] << " " << frame_lookats_[best_frame][1] << " "  << frame_lookats_[best_frame][2];
+	//LOG(INFO) << "Rendering from frame " << best_frame;
+	
+	Eigen::Matrix4f mvp;
+	mvp.setIdentity();
+
+	
+
+	Eigen::Matrix3f inverse_rotation = frame_rotations_[best_frame].transpose();
+
+	mvp.block(0, 0, 3, 3) *= new_rotation;// *inverse_rotation;
 	new_rotation = rotation.inverse();
 	//float yaw = atan2(rotation.coeff(2, 1), rotation.coeff(2, 2)); //rotation about X
 	//float pitch = atan2(-rotation.coeff(2, 0), sqrt(pow(rotation.coeff(2, 1), 2) + pow(rotation.coeff(2, 2), 2))); //rotation about Y
@@ -209,43 +243,15 @@ bool StereoVideoAngularRenderer::RenderEye(Eigen::Matrix4f projection, const int
 	//z_rotation << cos(roll), -sin(roll), 0, sin(roll), cos(roll), 0, 0, 0, 1;
 	//new_rotation = z_rotation * y_rotation * x_rotation;
 	//new_rotation = new_rotation.inverse();
-
-	// 12
-	// 8
-	// 6
-	// 1
-	// 2
-
-	Eigen::Matrix3f coordinate_change;
-	coordinate_change.setIdentity();
-	coordinate_change.row(1) *= -1;
-		coordinate_change.row(2) *= -1;
-
-	int best_frame = -1;
-	double best_score = -1;
-	const Eigen::Vector3f lookat = new_rotation.col(2);
-	for (int i = 0; i < frame_lookats_.size(); i++) {
-		const double score = lookat.dot(frame_lookats_[i]);
-		if (score > best_score) {
-			best_score = score;
-			best_frame = i;
-		}
-	}
-	//LOG(INFO) << "Rendering from frame " << best_frame;
-	
-	Eigen::Matrix4f mvp;
-	mvp.setIdentity();
-	Eigen::Matrix3f inverse_rotation = frame_rotations_[best_frame].inverse();
-	mvp.block(0, 0, 3, 3) *= new_rotation *  inverse_rotation;
-
 	mvp = projection * mvp;
 
 	CHECK_GE(best_frame, 0);
 
 	renderer_->UploadShaderUniform(best_frame, "image_index");
 	renderer_->UploadShaderUniform(eye_id, "right");
-
+	meshes_[eye_id].Rotate(frame_rotations_[best_frame].transpose());
 	renderer_->UploadMesh(meshes_[eye_id]);
+	meshes_[eye_id].Rotate(frame_rotations_[best_frame]);
 
 	renderer_->SetProjectionMatrix(mvp);
 	renderer_->SetViewportSize(width, height);
@@ -259,11 +265,11 @@ bool StereoVideoAngularRenderer::RenderEye(Eigen::Matrix4f projection, const int
 
 	//renderer_->RenderToWindow();
 	renderer_->RenderToImage(&image_);
-	cv::imshow("test" + std::to_string(eye_id), image_);
 
 	renderer_->UploadTexture(image_, eye_id == 0 ? "left" : "right");
 	vr::Texture_t eye_texture = { (void*)(uintptr_t)renderer_->GetTextureId(eye_id == 0 ? "left" : "right"), vr::TextureType_OpenGL, vr::ColorSpace_Gamma };
 	vr::VRCompositor()->Submit(eye_id == 0 ? vr::Eye_Left : vr::Eye_Right, &eye_texture);
+	glGetError();
 	return false;
 }
 

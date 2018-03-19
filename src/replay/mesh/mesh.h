@@ -58,6 +58,10 @@ class Mesh {
                          const Eigen::Vector3f& position);
   Eigen::Vector3f VertexPosition(const VertexId vertex_id) const;
 
+  // Transformations
+  void Rotate(const Eigen::Matrix3f& rotation);
+  void Transate(const Eigen::Vector3f& translation);
+
   // Returns the valence (also known as "degree") of the vertex.
   int ValenceOfVertex(const VertexId vertex_id) const;
 

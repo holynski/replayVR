@@ -92,6 +92,18 @@ Eigen::Vector3f Mesh::VertexPosition(const VertexId vertex_id) const {
   return CGALPoint3ToEigenVector3f(mesh_.point(VertexIndex(vertex_id)));
 }
 
+void Mesh::Rotate(const Eigen::Matrix3f& rotation) {
+	for (int i = 0; i < NumVertices(); i++) {
+		SetVertexPosition(i, rotation * VertexPosition(i));
+	}
+}
+
+void Mesh::Transate(const Eigen::Vector3f& translation) {
+	for (int i = 0; i < NumVertices(); i++) {
+		SetVertexPosition(i, translation + VertexPosition(i));
+	}
+}
+
 int Mesh::ValenceOfVertex(const VertexId vertex_id) const {
   return mesh_.degree(VertexIndex(vertex_id));
 }
