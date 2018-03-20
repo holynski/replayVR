@@ -1,7 +1,7 @@
 #include "replay/rendering/vr_context.h"
-#include <Eigen/Dense>
 #include "glog/logging.h"
 #include "openvr.h"
+#include <Eigen/Dense>
 
 namespace replay {
 
@@ -24,7 +24,7 @@ static const std::string companion_fragment =
     "screen_coords.y)).rgb;"
     "}"
     "}\n";
-}  // namespace
+} // namespace
 
 bool VRContext::InitializeHMD() {
   vr::EVRInitError error = vr::VRInitError_None;
@@ -82,30 +82,30 @@ void VRContext::UpdatePoseFromKeyboard(int key, int action, int modifier) {
     return;
   }
   switch (key) {
-    case GLFW_KEY_UP:
-      keyboard_pitch_ += 0.1;
-      break;
-    case GLFW_KEY_DOWN:
-      keyboard_pitch_ -= 0.1;
-      break;
-    case GLFW_KEY_RIGHT:
-      keyboard_yaw_ += 0.1;
-      break;
-    case GLFW_KEY_LEFT:
-      keyboard_yaw_ -= 0.1;
-      break;
-    case GLFW_KEY_W:
-      keyboard_translation_[2] += 0.1;
-      break;
-    case GLFW_KEY_A:
-      keyboard_translation_[0] -= 0.1;
-      break;
-    case GLFW_KEY_S:
-      keyboard_translation_[2] -= 0.1;
-      break;
-    case GLFW_KEY_D:
-      keyboard_translation_[0] -= 0.1;
-      break;
+  case GLFW_KEY_UP:
+    keyboard_pitch_ += 0.01;
+    break;
+  case GLFW_KEY_DOWN:
+    keyboard_pitch_ -= 0.01;
+    break;
+  case GLFW_KEY_RIGHT:
+    keyboard_yaw_ -= 0.01;
+    break;
+  case GLFW_KEY_LEFT:
+    keyboard_yaw_ += 0.01;
+    break;
+  case GLFW_KEY_W:
+    keyboard_translation_[2] += 0.05;
+    break;
+  case GLFW_KEY_A:
+    keyboard_translation_[0] -= 0.05;
+    break;
+  case GLFW_KEY_S:
+    keyboard_translation_[2] -= 0.05;
+    break;
+  case GLFW_KEY_D:
+    keyboard_translation_[0] -= 0.05;
+    break;
   }
 }
 
@@ -150,18 +150,19 @@ Eigen::Matrix4f VRContext::GetProjectionMatrix(const int eye_id) const {
   if (emulated_hmd_) {
     Eigen::Matrix4f projection;
     // Using the default projection matrix from the HTC Vive
-    projection << -0.0127879, 0.986506, 0, -0.163225, 0.762151, 0.455352, 0,
-        -0.139585, 0, -0.879301, 1.64758, 0, 0, 0, 1;
+    projection << 0.755837, 0, -0.0563941, 0, 0, 0.680395, -0.00309659, 0, 0, 0,
+        -1.00503, -0.0100503, 0, 0, -1, 0;
     return projection;
   }
   switch (eye_id) {
-    case 0:
-      return left_projection_;
-    case 1:
-      return right_projection_;
-    default:
-      LOG(FATAL) << "Invalid eye_id: " << eye_id;
-      return Eigen::Matrix4f();
+  case 0:
+    return left_projection_;
+
+  case 1:
+    return right_projection_;
+  default:
+    LOG(FATAL) << "Invalid eye_id: " << eye_id;
+    return Eigen::Matrix4f();
   }
 }
 
@@ -186,17 +187,14 @@ Eigen::Matrix4f VRContext::GetHMDPose() const {
     return hmd_pose_;
   } else {
     Eigen::Matrix3f yaw;
-    yaw << cos(keyboard_yaw_), 0, sin(keyboard_yaw_), 
-        0, 1, 0,
+    yaw << cos(keyboard_yaw_), 0, sin(keyboard_yaw_), 0, 1, 0,
         -sin(keyboard_yaw_), 0, cos(keyboard_yaw_);
     Eigen::Matrix3f pitch;
-    pitch << 1, 0, 0, 
-          0, cos(keyboard_pitch_), -sin(keyboard_pitch_), 
-          0, sin(keyboard_pitch_), cos(keyboard_pitch_);
+    pitch << 1, 0, 0, 0, cos(keyboard_pitch_), -sin(keyboard_pitch_), 0,
+        sin(keyboard_pitch_), cos(keyboard_pitch_);
     Eigen::Matrix4f pose = Eigen::Matrix4f::Identity();
-    pose.block(0, 0, 3, 3) = pitch * yaw;
+    pose.block(0, 0, 3, 3) = yaw * pitch;
     pose.block(0, 3, 3, 1) = keyboard_translation_;
-    LOG(INFO) << pose;
     return pose;
   }
 }
@@ -255,4 +253,4 @@ void VRContext::RenderEye(const int eye_id) {
 
 // Return to the shader that was being used before the function was called
 
-}  // namespace replay
+} // namespace replay
