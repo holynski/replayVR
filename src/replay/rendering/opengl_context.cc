@@ -215,36 +215,30 @@ bool OpenGLContext::CompileAndLinkShaders(const std::string& vertex,
 }
 
 bool OpenGLContext::CompileFullScreenShader(const std::string& fragment,
-	int* shader_id) {
-	// Create a full-screen mesh. Upload this mesh so that it clears all vertex
-	// and element buffers.
-	Mesh single_triangle_mesh;
-	single_triangle_mesh.AddVertex(Eigen::Vector3f(-1, -1, 0));
-	single_triangle_mesh.AddVertex(Eigen::Vector3f(3, -1, 0));
-	single_triangle_mesh.AddVertex(Eigen::Vector3f(-1, 3, 0));
-	single_triangle_mesh.AddTriangleFace(0, 1, 2);
+                                            int* shader_id) {
+  // Create a full-screen mesh. Upload this mesh so that it clears all vertex
+  // and element buffers.
 
-	// Load the full screen vertex shader to a string.
-	static const std::string full_screen_vs =
-		"#version 410\n"
-		"uniform mat4 MVP;\n"
-		"uniform float negative;\n"
-		"in vec3 vert;\n"
-		"void main()\n"
-		"{\n"
-		"  gl_Position = vec4(vert.x, vert.y * negative, vert.z, 1.0);\n"
-		"}\n";
-	using_projection_matrix_.push_back(false);
+  // Load the full screen vertex shader to a string.
+  static const std::string full_screen_vs =
+      "#version 410\n"
+      "uniform mat4 MVP;\n"
+      "uniform float negative;\n"
+      "in vec3 vert;\n"
+      "void main()\n"
+      "{\n"
+      "  gl_Position = vec4(vert.x, vert.y * negative, vert.z, 1.0);\n"
+      "}\n";
+  using_projection_matrix_.push_back(false);
 
-	// Compile and link the shaders per usual.
-	if (!CompileAndLinkShaders(full_screen_vs, fragment, shader_id)) {
-		return false;
-	}
-	UseShader(*shader_id);
-	if (!UploadMesh(single_triangle_mesh))
-	{
-		return false;
-	}
+  // Compile and link the shaders per usual.
+  if (!CompileAndLinkShaders(full_screen_vs, fragment, shader_id)) {
+    return false;
+  }
+  UseShader(*shader_id);
+  if (!BindFullscreenTriangle()) {
+    return false;
+  }
 
   return true;
 }
@@ -372,6 +366,15 @@ bool OpenGLContext::SetKeyboardCallback(void (*callback)(int, int, int)) {
 
 Eigen::Vector2d OpenGLContext::GetMousePosition() const {
   return mouse_position_;
+}
+
+bool OpenGLContext::BindFullscreenTriangle() {
+  Mesh single_triangle_mesh;
+  single_triangle_mesh.AddVertex(Eigen::Vector3f(-1, -1, 0));
+  single_triangle_mesh.AddVertex(Eigen::Vector3f(3, -1, 0));
+  single_triangle_mesh.AddVertex(Eigen::Vector3f(-1, 3, 0));
+  single_triangle_mesh.AddTriangleFace(0, 1, 2);
+  return UploadMesh(single_triangle_mesh);
 }
 
 bool OpenGLContext::UploadMesh(const Mesh& mesh) {
@@ -764,16 +767,16 @@ bool OpenGLContext::SetViewpoint(const theia::Camera& camera) {
   return SetViewpoint(camera, 0.01f, 100.0f);
 }
 
-void OpenGLContext::SetViewportSize(const int& width, const int& height, const bool resize_window) {
+void OpenGLContext::SetViewportSize(const int& width, const int& height,
+                                    const bool resize_window) {
   glfwMakeContextCurrent(window_);
   glViewport(0, 0, width, height);
   width_ = width;
   height_ = height;
   if (resize_window) {
-	  glfwSetWindowSize(window_, framebuffer_size_to_screen_coords_ * width,
-		  framebuffer_size_to_screen_coords_ * height);
+    glfwSetWindowSize(window_, framebuffer_size_to_screen_coords_ * width,
+                      framebuffer_size_to_screen_coords_ * height);
   }
-
 }
 
 bool OpenGLContext::SetViewpoint(const theia::Camera& camera, const float& near,
@@ -835,6 +838,9 @@ bool OpenGLContext::UseShader(const int& shader_id) {
     CheckForOpenGLErrors();
     current_program_ = shader_id;
     glUseProgram(programs_[current_program_]);
+    if (!using_projection_matrix_[shader_id]) {
+      BindFullscreenTriangle();
+    }
     return true;
   }
   return false;

@@ -268,6 +268,7 @@ class OpenGLContext {
   bool window_showing_;
   static float framebuffer_size_to_screen_coords_;
   Eigen::Vector2d mouse_position_;
+  bool BindFullscreenTriangle();
   void RenderToBufferInternal(void* buffer, const int& format,
                               const int& datatype);
   bool UploadTextureInternal(void* data, const int& width, const int& height,
