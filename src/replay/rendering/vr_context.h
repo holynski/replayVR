@@ -97,8 +97,7 @@ class VRContext : public OpenGLContext {
   Eigen::Matrix4f right_projection_;
   float keyboard_pitch_ = 0.0f;
   float keyboard_yaw_ = 0.0f;
-  Eigen::Matrix3f keyboard_rotation_;
-  Eigen::Vector3f keyboard_translation_;
+  Eigen::Vector3f keyboard_translation_ = Eigen::Vector3f::Zero();
   bool emulated_hmd_ = false;
   uint32_t hmd_viewport_width_;
   uint32_t hmd_viewport_height_;

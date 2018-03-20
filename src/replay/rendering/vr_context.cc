@@ -1,7 +1,7 @@
 #include "replay/rendering/vr_context.h"
+#include <Eigen/Dense>
 #include "glog/logging.h"
 #include "openvr.h"
-#include <Eigen/Dense>
 
 namespace replay {
 
@@ -24,7 +24,7 @@ static const std::string companion_fragment =
     "screen_coords.y)).rgb;"
     "}"
     "}\n";
-} // namespace
+}  // namespace
 
 bool VRContext::InitializeHMD() {
   vr::EVRInitError error = vr::VRInitError_None;
@@ -82,30 +82,30 @@ void VRContext::UpdatePoseFromKeyboard(int key, int action, int modifier) {
     return;
   }
   switch (key) {
-  case GLFW_KEY_UP:
-    keyboard_pitch_ += 0.1;
-    break;
-  case GLFW_KEY_DOWN:
-    keyboard_pitch_ -= 0.1;
-    break;
-  case GLFW_KEY_RIGHT:
-    keyboard_yaw_ += 0.1;
-    break;
-  case GLFW_KEY_LEFT:
-    keyboard_yaw_ -= 0.1;
-    break;
-  case GLFW_KEY_W:
-    keyboard_translation_[2] += 0.1;
-    break;
-  case GLFW_KEY_A:
-    keyboard_translation_[0] -= 0.1;
-    break;
-  case GLFW_KEY_S:
-    keyboard_translation_[2] -= 0.1;
-    break;
-  case GLFW_KEY_D:
-    keyboard_translation_[0] -= 0.1;
-    break;
+    case GLFW_KEY_UP:
+      keyboard_pitch_ += 0.1;
+      break;
+    case GLFW_KEY_DOWN:
+      keyboard_pitch_ -= 0.1;
+      break;
+    case GLFW_KEY_RIGHT:
+      keyboard_yaw_ += 0.1;
+      break;
+    case GLFW_KEY_LEFT:
+      keyboard_yaw_ -= 0.1;
+      break;
+    case GLFW_KEY_W:
+      keyboard_translation_[2] += 0.1;
+      break;
+    case GLFW_KEY_A:
+      keyboard_translation_[0] -= 0.1;
+      break;
+    case GLFW_KEY_S:
+      keyboard_translation_[2] -= 0.1;
+      break;
+    case GLFW_KEY_D:
+      keyboard_translation_[0] -= 0.1;
+      break;
   }
 }
 
@@ -117,6 +117,7 @@ bool VRContext::Initialize() {
   companion_window_enabled_ = false;
 
   if (!InitializeHMD()) {
+    LOG(INFO) << "Initializing HMD emulator...";
     companion_window_enabled_ = true;
     SetKeyboardCallback(std::bind(&VRContext::UpdatePoseFromKeyboard, this,
                                   std::placeholders::_1, std::placeholders::_2,
@@ -148,19 +149,19 @@ Eigen::Matrix4f VRContext::GetProjectionMatrix(const int eye_id) const {
   DCHECK(is_initialized_) << "Initialize renderer first.";
   if (emulated_hmd_) {
     Eigen::Matrix4f projection;
-	// Using the default projection matrix from the HTC Vive
+    // Using the default projection matrix from the HTC Vive
     projection << -0.0127879, 0.986506, 0, -0.163225, 0.762151, 0.455352, 0,
         -0.139585, 0, -0.879301, 1.64758, 0, 0, 0, 1;
-	return projection;
+    return projection;
   }
   switch (eye_id) {
-  case 0:
-    return left_projection_;
-  case 1:
-    return right_projection_;
-  default:
-    LOG(FATAL) << "Invalid eye_id: " << eye_id;
-    return Eigen::Matrix4f();
+    case 0:
+      return left_projection_;
+    case 1:
+      return right_projection_;
+    default:
+      LOG(FATAL) << "Invalid eye_id: " << eye_id;
+      return Eigen::Matrix4f();
   }
 }
 
@@ -185,14 +186,17 @@ Eigen::Matrix4f VRContext::GetHMDPose() const {
     return hmd_pose_;
   } else {
     Eigen::Matrix3f yaw;
-    yaw << cos(keyboard_yaw_), 0, sin(keyboard_yaw_), 0, 1, 0,
+    yaw << cos(keyboard_yaw_), 0, sin(keyboard_yaw_), 
+        0, 1, 0,
         -sin(keyboard_yaw_), 0, cos(keyboard_yaw_);
     Eigen::Matrix3f pitch;
-    pitch << 1, 0, 0, 0, cos(keyboard_pitch_), -sin(keyboard_pitch_), 0,
-        sin(keyboard_pitch_), cos(keyboard_pitch_);
+    pitch << 1, 0, 0, 
+          0, cos(keyboard_pitch_), -sin(keyboard_pitch_), 
+          0, sin(keyboard_pitch_), cos(keyboard_pitch_);
     Eigen::Matrix4f pose = Eigen::Matrix4f::Identity();
     pose.block(0, 0, 3, 3) = pitch * yaw;
     pose.block(0, 3, 3, 1) = keyboard_translation_;
+    LOG(INFO) << pose;
     return pose;
   }
 }
@@ -210,7 +214,11 @@ void VRContext::RenderEye(const int eye_id) {
   DCHECK_LE(eye_id, 1);
   DCHECK_GE(eye_id, 0);
 
-  SetViewportSize(hmd_viewport_width_, hmd_viewport_height_, false);
+  if (emulated_hmd_) {
+    SetViewportSize(companion_width_, companion_height_);
+  } else {
+    SetViewportSize(hmd_viewport_width_, hmd_viewport_height_, false);
+  }
 
   if (image_.empty()) {
     image_ = cv::Mat3b(1, 1);
@@ -247,4 +255,4 @@ void VRContext::RenderEye(const int eye_id) {
 
 // Return to the shader that was being used before the function was called
 
-} // namespace replay
+}  // namespace replay

@@ -103,7 +103,9 @@ bool StereoVideoAngularRenderer::Initialize(
   LOG(INFO) << "Uploading frames...";
 
   int index = 0;
+  int total_frames = 0;
   while (reader_.GetOrientedFrame(image, angle)) {
+    total_frames ++;
     if (index == number_of_frames) {
       break;
     }
@@ -118,13 +120,13 @@ bool StereoVideoAngularRenderer::Initialize(
       }
     }
     if (skip_this_frame) {
-      LOG(INFO) << "Skipping frame!";
       frame_lookats_[index] = Eigen::Vector3f(0, 0, 0);
       continue;
     }
     renderer_->UploadTextureToArray(image, "images", index);
     index++;
   }
+  LOG(INFO) << "Kept " << index << "/" << total_frames << " frames.";
 
   LOG(INFO) << "Done";
 
@@ -157,7 +159,6 @@ void StereoVideoAngularRenderer::Render() {
   mvp.block(0, 0, 3, 3) *= hmd_rotation * inverse_frame_rotation;
 
   Eigen::Matrix4f mvp_left = renderer_->GetProjectionMatrix(0) * mvp;
-  LOG(INFO) << mvp_left;
   Eigen::Matrix4f mvp_right = renderer_->GetProjectionMatrix(1) * mvp;
 
   renderer_->UploadShaderUniform(best_frame, "image_index");
