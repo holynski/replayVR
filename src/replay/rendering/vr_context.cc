@@ -1,6 +1,6 @@
 #include "replay/rendering/vr_context.h"
-#include "openvr.h"
 #include "glog/logging.h"
+#include "openvr.h"
 #include <Eigen/Dense>
 
 namespace replay {
@@ -11,23 +11,22 @@ static const std::string companion_fragment =
     "out vec3 color;\n"
     "uniform sampler2D left;"
     "uniform sampler2D right;"
+    "uniform vec2 window_size;"
     "void main()\n"
     "{\n"
-    "    if (gl_FragCoord.x > 0.5) {"
-	"       color = texture(left, vec2(gl_FragCoord.x * 2, gl_FragCoord.y)).rgb;"
+    " vec2 screen_coords = vec2(gl_FragCoord.x / window_size.x, gl_FragCoord.y "
+    "/ window_size.y);"
+    " if (screen_coords.x < 0.5) {"
+    " color = texture(left, vec2(screen_coords.x * 2, screen_coords.y)).rgb;"
     "}"
-    "    else {"
-	"       color = texture(right, vec2(gl_FragCoord.x * 2, gl_FragCoord.y)).rgb;"
+    " else {"
+    " color = texture(right, vec2((screen_coords.x - 0.5) * 2 , "
+    "screen_coords.y)).rgb;"
     "}"
     "}\n";
-}  // namespace
+} // namespace
 
-bool VRContext::Initialize() {
-  if (!OpenGLContext::Initialize()) {
-    return false;
-  }
-  is_initialized_ = false;
-  companion_window_enabled_ = false;
+bool VRContext::InitializeHMD() {
   vr::EVRInitError error = vr::VRInitError_None;
 
   hmd_ = vr::VR_Init(&error, vr::VRApplication_Scene);
@@ -46,7 +45,7 @@ bool VRContext::Initialize() {
   }
 
   hmd_->GetRecommendedRenderTargetSize(&hmd_viewport_width_,
-                                      &hmd_viewport_height_);
+                                       &hmd_viewport_height_);
 
   // Retrieve and store the projection matrices for each eye, assuming that they
   // won't be changing during the scope of this VRContext object.
@@ -75,14 +74,62 @@ bool VRContext::Initialize() {
   if (hmd_index_ < 0) {
     return false;
   }
+
+  return true;
+}
+void VRContext::UpdatePoseFromKeyboard(int key, int action, int modifier) {
+  if (action == GLFW_RELEASE) {
+    return;
+  }
+  switch (key) {
+  case GLFW_KEY_UP:
+    keyboard_pitch_ += 0.1;
+    break;
+  case GLFW_KEY_DOWN:
+    keyboard_pitch_ -= 0.1;
+    break;
+  case GLFW_KEY_RIGHT:
+    keyboard_yaw_ += 0.1;
+    break;
+  case GLFW_KEY_LEFT:
+    keyboard_yaw_ -= 0.1;
+    break;
+  case GLFW_KEY_W:
+    keyboard_translation_[2] += 0.1;
+    break;
+  case GLFW_KEY_A:
+    keyboard_translation_[0] -= 0.1;
+    break;
+  case GLFW_KEY_S:
+    keyboard_translation_[2] -= 0.1;
+    break;
+  case GLFW_KEY_D:
+    keyboard_translation_[0] -= 0.1;
+    break;
+  }
+}
+
+bool VRContext::Initialize() {
+  if (!OpenGLContext::Initialize()) {
+    return false;
+  }
+  is_initialized_ = false;
+  companion_window_enabled_ = false;
+
+  if (!InitializeHMD()) {
+    companion_window_enabled_ = true;
+    SetKeyboardCallback(std::bind(&VRContext::UpdatePoseFromKeyboard, this,
+                                  std::placeholders::_1, std::placeholders::_2,
+                                  std::placeholders::_3));
+    emulated_hmd_ = true;
+  }
+
   is_initialized_ = true;
 
   // Compile companion window shader
   if (!CompileFullScreenShader(companion_fragment, &companion_window_shader_)) {
     return false;
   }
-
-
 
   return true;
 }
@@ -91,8 +138,7 @@ void VRContext::ToggleCompanionWindow(const bool enable) {
   DCHECK(is_initialized_) << "Initialize renderer first.";
   if (enable) {
     ShowWindow();
-  }
-  else {
+  } else {
     HideWindow();
   }
   companion_window_enabled_ = enable;
@@ -100,34 +146,55 @@ void VRContext::ToggleCompanionWindow(const bool enable) {
 
 Eigen::Matrix4f VRContext::GetProjectionMatrix(const int eye_id) const {
   DCHECK(is_initialized_) << "Initialize renderer first.";
+  if (emulated_hmd_) {
+    Eigen::Matrix4f projection;
+	// Using the default projection matrix from the HTC Vive
+    projection << -0.0127879, 0.986506, 0, -0.163225, 0.762151, 0.455352, 0,
+        -0.139585, 0, -0.879301, 1.64758, 0, 0, 0, 1;
+	return projection;
+  }
   switch (eye_id) {
-    case 0:
-      return left_projection_;
-    case 1:
-      return right_projection_;
-    default:
-      LOG(FATAL) << "Invalid eye_id: " << eye_id;
-      return Eigen::Matrix4f();
+  case 0:
+    return left_projection_;
+  case 1:
+    return right_projection_;
+  default:
+    LOG(FATAL) << "Invalid eye_id: " << eye_id;
+    return Eigen::Matrix4f();
   }
 }
 
 void VRContext::UpdatePose() {
   DCHECK(is_initialized_) << "Initialize renderer first.";
-  vr::VRCompositor()->WaitGetPoses(device_poses_, vr::k_unMaxTrackedDeviceCount,
-                                   NULL, 0);
-  vr::HmdMatrix34_t pose = device_poses_[hmd_index_].mDeviceToAbsoluteTracking;
-  hmd_pose_ << pose.m[0][0], pose.m[0][1], pose.m[0][2], pose.m[0][3],
-      pose.m[1][0], pose.m[1][1], pose.m[1][2], pose.m[1][3], pose.m[2][0],
-      pose.m[2][1], pose.m[2][2], pose.m[2][3], 0, 0, 0, 1;
+  if (!emulated_hmd_) {
+    vr::VRCompositor()->WaitGetPoses(device_poses_,
+                                     vr::k_unMaxTrackedDeviceCount, NULL, 0);
+    vr::HmdMatrix34_t pose =
+        device_poses_[hmd_index_].mDeviceToAbsoluteTracking;
+    hmd_pose_ << pose.m[0][0], pose.m[0][1], pose.m[0][2], pose.m[0][3],
+        pose.m[1][0], pose.m[1][1], pose.m[1][2], pose.m[1][3], pose.m[2][0],
+        pose.m[2][1], pose.m[2][2], pose.m[2][3], 0, 0, 0, 1;
+  }
 }
 
-void VRContext::Render() {
-  LOG(FATAL) << "Not implemented.";
-}
+void VRContext::Render() { LOG(FATAL) << "Not implemented."; }
 
 Eigen::Matrix4f VRContext::GetHMDPose() const {
   DCHECK(is_initialized_) << "Initialize renderer first.";
-  return hmd_pose_;
+  if (!emulated_hmd_) {
+    return hmd_pose_;
+  } else {
+    Eigen::Matrix3f yaw;
+    yaw << cos(keyboard_yaw_), 0, sin(keyboard_yaw_), 0, 1, 0,
+        -sin(keyboard_yaw_), 0, cos(keyboard_yaw_);
+    Eigen::Matrix3f pitch;
+    pitch << 1, 0, 0, 0, cos(keyboard_pitch_), -sin(keyboard_pitch_), 0,
+        sin(keyboard_pitch_), cos(keyboard_pitch_);
+    Eigen::Matrix4f pose = Eigen::Matrix4f::Identity();
+    pose.block(0, 0, 3, 3) = pitch * yaw;
+    pose.block(0, 3, 3, 1) = keyboard_translation_;
+    return pose;
+  }
 }
 
 void VRContext::SetCompanionWindowSize(const int width, const int height) {
@@ -151,25 +218,33 @@ void VRContext::RenderEye(const int eye_id) {
 
   RenderToImage(&image_);
 
-  
   const int shader = current_program_;
-  UseShader(companion_window_shader_);
-  SetViewportSize(companion_width_, companion_height_);
+
   const std::string eye_name = (eye_id == 0 ? "left" : "right");
-  UploadTexture(image_, eye_name);
-  vr::Texture_t eye_texture = {(void *)(uintptr_t)GetTextureId(eye_name),
-                               vr::TextureType_OpenGL, vr::ColorSpace_Gamma};
-  vr::VRCompositor()->Submit(eye_id == 0 ? vr::Eye_Left : vr::Eye_Right,
-                             &eye_texture);
-  int error = glGetError();
-  if (error != 0) {
-	  LOG(ERROR) << "VR Compositor caused OpenGL error " << error << " upon Submit()";
+
+  if (!emulated_hmd_) {
+    UploadTexture(image_, eye_name);
+    vr::Texture_t eye_texture = {(void *)(uintptr_t)GetTextureId(eye_name),
+                                 vr::TextureType_OpenGL, vr::ColorSpace_Gamma};
+    vr::VRCompositor()->Submit(eye_id == 0 ? vr::Eye_Left : vr::Eye_Right,
+                               &eye_texture);
+    int error = glGetError();
+    if (error != 0) {
+      LOG(ERROR) << "VR Compositor caused OpenGL error " << error
+                 << " upon Submit()";
+    }
   }
   if (companion_window_enabled_) {
+    SetViewportSize(companion_width_, companion_height_);
+    UseShader(companion_window_shader_);
+    UploadTexture(image_, eye_name);
+    UploadShaderUniform(Eigen::Vector2f(companion_width_, companion_height_),
+                        "window_size");
     OpenGLContext::Render();
+    UseShader(shader);
   }
-
-  // Return to the shader that was being used before the function was called
-  UseShader(shader);
 }
-}  // namespace replay
+
+// Return to the shader that was being used before the function was called
+
+} // namespace replay

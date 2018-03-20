@@ -328,7 +328,7 @@ void OpenGLContext::KeyboardCallback(GLFWwindow* window, int key, int scancode,
   if (renderer->Keyboard_ == NULL) {
     return;
   }
-  (*(renderer->Keyboard_))(key, action, mods);
+  renderer->Keyboard_(key, action, mods);
 }
 
 void OpenGLContext::MousePosCallback(GLFWwindow* window, double x, double y) {
@@ -359,7 +359,7 @@ bool OpenGLContext::SetMouseClickCallback(void (*callback)(int, int, int)) {
   return true;
 }
 
-bool OpenGLContext::SetKeyboardCallback(void (*callback)(int, int, int)) {
+bool OpenGLContext::SetKeyboardCallback(std::function<void(int,int,int)> callback) {
   Keyboard_ = callback;
   return true;
 }

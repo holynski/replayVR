@@ -1,19 +1,19 @@
 extern "C" {
-#include "libavformat/avformat.h"
-#include "libavutil/imgutils.h"
-#include "libavutil/samplefmt.h"
-#include "libavutil/timestamp.h"
 #include "libavcodec/avcodec.h"
+#include "libavformat/avformat.h"
 #include "libavutil/avutil.h"
 #include "libavutil/dict.h"
+#include "libavutil/imgutils.h"
+#include "libavutil/samplefmt.h"
 #include "libavutil/spherical.h"
+#include "libavutil/timestamp.h"
 #include "libswscale/swscale.h"
 #include "zlib.h"
 }
 
+#include "replay/io/video_reader.h"
 #include <glog/logging.h>
 #include <opencv2/opencv.hpp>
-#include "replay/io/video_reader.h"
 
 // Get video seeking working
 //
@@ -32,7 +32,7 @@ VideoReader::VideoReader() {
   }
 }
 
-bool VideoReader::Open(const std::string& filename) {
+bool VideoReader::Open(const std::string &filename) {
   if (avformat_open_input(&format_context_, filename.c_str(), NULL, NULL) < 0) {
     LOG(ERROR) << "Couldn't open file and allocate context for " << filename;
     return false;
@@ -41,7 +41,7 @@ bool VideoReader::Open(const std::string& filename) {
     LOG(ERROR) << "Couldn't find stream info.";
     return false;
   }
-  AVDictionary* opts = NULL;
+  AVDictionary *opts = NULL;
 
   if ((video_stream_idx_ = av_find_best_stream(
            format_context_, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0)) < 0) {
@@ -96,7 +96,7 @@ bool VideoReader::Open(const std::string& filename) {
   return true;
 }
 
-Packet* VideoReader::ReadPacket() {
+Packet *VideoReader::ReadPacket() {
   AVPacket packet;
   av_init_packet(&packet);
   packet.data = NULL;
@@ -110,12 +110,12 @@ Packet* VideoReader::ReadPacket() {
       return nullptr;
     }
 
-    AVFrame* frame = av_frame_alloc();
+    AVFrame *frame = av_frame_alloc();
     if (avcodec_receive_frame(video_decoder_context_, frame) < 0) {
       return nullptr;
     }
 
-    VideoPacket* return_packet = new VideoPacket;
+    VideoPacket *return_packet = new VideoPacket;
     return_packet->stream_id = packet.stream_index;
     return_packet->type = StreamType::VIDEO;
     return_packet->frame = frame;
@@ -127,18 +127,19 @@ Packet* VideoReader::ReadPacket() {
         video_stream_->time_base.den;
     return return_packet;
   } else if (packet.stream_index == metadata_stream_idx_) {
-    MetadataPacket* return_packet = new MetadataPacket;
+    MetadataPacket *return_packet = new MetadataPacket;
     return_packet->stream_id = packet.stream_index;
     return_packet->type = StreamType::METADATA;
     return_packet->time_in_seconds =
         (packet.pts * static_cast<double>(metadata_stream_->time_base.num)) /
         metadata_stream_->time_base.den;
-    return_packet->metadata = reinterpret_cast<void*>(new uint8_t[packet.size]);
+    return_packet->metadata =
+        reinterpret_cast<void *>(new uint8_t[packet.size]);
     memcpy(return_packet->metadata, packet.data, packet.size);
-    //return_packet->metadata = packet.data;
+    // return_packet->metadata = packet.data;
     return return_packet;
   } else if (packet.stream_index == audio_stream_idx_) {
-    AudioPacket* return_packet = new AudioPacket;
+    AudioPacket *return_packet = new AudioPacket;
     return_packet->stream_id = packet.stream_index;
     return_packet->type = StreamType::AUDIO;
     return_packet->time_in_seconds =
@@ -146,16 +147,16 @@ Packet* VideoReader::ReadPacket() {
         audio_stream_->time_base.den;
     return return_packet;
   } else {
-    Packet* return_packet = new Packet;
+    Packet *return_packet = new Packet;
     return_packet->stream_id = packet.stream_index;
     return return_packet;
   }
-}  // namespace replay
+} // namespace replay
 
 cv::Mat3b VideoReader::ReadFrame() {
   CHECK(file_open_) << "Call Open() first!";
 
-  Packet* packet;
+  Packet *packet;
   while ((packet = ReadPacket())->stream_id != video_stream_idx_) {
     if (packet->stream_id == -1) {
       // We hit the end of the stream.
@@ -163,15 +164,15 @@ cv::Mat3b VideoReader::ReadFrame() {
     }
   }
 
-  VideoPacket* video_packet = static_cast<VideoPacket*>(packet);
+  VideoPacket *video_packet = static_cast<VideoPacket *>(packet);
   return AVFrameToMat(video_packet->frame);
 }
 
 bool VideoReader::SeekToTime(const double time_in_seconds) {
   CHECK(file_open_) << "Call Open() first!";
 
-  return SeekToFrame((time_in_seconds * video_stream_->r_frame_rate.num) / video_stream_->r_frame_rate.den);
-
+  return SeekToFrame((time_in_seconds * video_stream_->r_frame_rate.num) /
+                     video_stream_->r_frame_rate.den);
 }
 
 bool VideoReader::SeekToMetadata(const double time_in_seconds) {
@@ -200,14 +201,15 @@ bool VideoReader::SeekToFrame(const int frame_number) {
                     AVSEEK_FLAG_BACKWARD) < 0) {
     return false;
   }
-  Packet* packet;
-    while ((packet = ReadPacket())->stream_id != video_stream_idx_) {
-      if (packet->stream_id == -1) {
-        // We hit the end of the stream.
-        return false;
-      }
+  Packet *packet;
+  while ((packet = ReadPacket())->stream_id != video_stream_idx_) {
+    if (packet->stream_id == -1) {
+      // We hit the end of the stream.
+      return false;
     }
-  while (time_in_seconds > (packet->time_in_seconds + packet->duration_in_seconds)) {
+  }
+  while (time_in_seconds >
+         (packet->time_in_seconds + packet->duration_in_seconds)) {
     while ((packet = ReadPacket())->stream_id != video_stream_idx_) {
       if (packet->stream_id == -1) {
         // We hit the end of the stream.
@@ -234,14 +236,14 @@ int VideoReader::GetHeight() const {
   return height_;
 }
 
-cv::Mat3b VideoReader::AVFrameToMat(AVFrame* frame) const {
+cv::Mat3b VideoReader::AVFrameToMat(AVFrame *frame) const {
   cv::Mat3b retval = cv::Mat(height_, width_, CV_8UC3);
   AVFrame dst;
-  dst.data[0] = (uint8_t*)retval.data;
-  avpicture_fill((AVPicture*)&dst, dst.data[0], AV_PIX_FMT_BGR24, width_,
+  dst.data[0] = (uint8_t *)retval.data;
+  avpicture_fill((AVPicture *)&dst, dst.data[0], AV_PIX_FMT_BGR24, width_,
                  height_);
 
-  SwsContext* convert_ctx;
+  SwsContext *convert_ctx;
   AVPixelFormat src_pixfmt = static_cast<AVPixelFormat>(frame->format);
   AVPixelFormat dst_pixfmt = AV_PIX_FMT_BGR24;
   convert_ctx = sws_getContext(width_, height_, src_pixfmt, width_, height_,
@@ -254,4 +256,4 @@ cv::Mat3b VideoReader::AVFrameToMat(AVFrame* frame) const {
   return retval;
 }
 
-}  // namespace replay
+} // namespace replay

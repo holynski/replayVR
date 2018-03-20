@@ -104,7 +104,7 @@ class OpenGLContext {
   // - The modifier value defines whether any modifier keys (CTRL, ALT, SHIFT)
   //   were pressed while the main key was pressed. The values are defined here:
   //   http://www.glfw.org/docs/latest/group__mods.html
-  bool SetKeyboardCallback(void (*callback)(int, int, int));
+  bool SetKeyboardCallback(std::function<void(int,int,int)> callback);
 
   // Returns the last recorded mouse position (X,Y).
   Eigen::Vector2d GetMousePosition() const;
@@ -285,7 +285,8 @@ class OpenGLContext {
   static void MouseButtonCallback(GLFWwindow* window, int button, int action,
                                   int mods);
   static void MousePosCallback(GLFWwindow* window, double x, double y);
-  void (*Keyboard_)(int, int, int);
+  //void (*Keyboard_)(int, int, int);
+  std::function<void(int, int, int)> Keyboard_;
   void (*MouseMove_)(double, double);
   void (*MouseButton_)(int, int, int);
 };

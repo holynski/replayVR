@@ -9,21 +9,21 @@
 
 #ifdef __APPLE__
 #define GLFW_INCLUDE_GLCOREARB
-#else  // __APPLE__
+#else // __APPLE__
 #include <GL/glew.h>
-#endif  // __APPLE__
+#endif // __APPLE__
 #include <GLFW/glfw3.h>
 namespace replay {
 
 class StereoVideoAngularRenderer {
- public:
+public:
   explicit StereoVideoAngularRenderer(std::shared_ptr<VRContext> renderer);
 
   void Render();
 
-  bool Initialize(const std::string& spherical_video_filename);
+  bool Initialize(const std::string &spherical_video_filename);
 
- private:
+private:
   std::shared_ptr<VRContext> renderer_;
   std::vector<Mesh> meshes_;
   int shader_id_;
@@ -34,6 +34,6 @@ class StereoVideoAngularRenderer {
   cv::Mat3b image_;
   VR180VideoReader reader_;
 };
-}  // namespace replay
+} // namespace replay
 
-#endif  // REPLAY_MESH_STEREO_VIDEO_ANGULAR_RENDERER_H_
+#endif // REPLAY_MESH_STEREO_VIDEO_ANGULAR_RENDERER_H_
