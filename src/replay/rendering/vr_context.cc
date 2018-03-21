@@ -2,6 +2,7 @@
 #include "glog/logging.h"
 #include "openvr.h"
 #include <Eigen/Dense>
+#include <chrono>
 
 namespace replay {
 

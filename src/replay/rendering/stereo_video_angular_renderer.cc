@@ -79,7 +79,7 @@ bool StereoVideoAngularRenderer::Initialize(
 
   cv::Mat3b image;
 
-  static const int number_of_frames = 3;
+  static const int number_of_frames = 600;
 
   CHECK(renderer_->UseShader(shader_id_));
   renderer_->AllocateTextureArray("images", reader_.GetWidth(),
@@ -101,13 +101,13 @@ bool StereoVideoAngularRenderer::Initialize(
     }
 
     frame_rotations_[index] = rotation;
-    frame_lookats_[index] = -frame_rotations_[index].col(2);
-    frame_upvecs_[index] = frame_rotations_[index].col(1);
+    frame_lookats_[index] = -frame_rotations_[index].row(2);
+    frame_upvecs_[index] = frame_rotations_[index].row(1);
 
     bool skip_this_frame = false;
     for (int i = 0; i < index; i++) {
-      if (frame_lookats_[i].dot(frame_lookats_[index]) > 0.7) {
-        skip_this_frame = true;
+      if (frame_lookats_[i].dot(frame_lookats_[index]) > 0.99) {
+        //skip_this_frame = true;
         break;
       }
     }
@@ -124,17 +124,18 @@ bool StereoVideoAngularRenderer::Initialize(
 
   return true;
 }
-
+int counter = 0;
+int framex = 0;
 void StereoVideoAngularRenderer::Render() {
   CHECK(is_initialized_) << "Initialize renderer first.";
   CHECK(renderer_->UseShader(shader_id_));
   renderer_->ToggleCompanionWindow(true);
   renderer_->UpdatePose();
-  Eigen::Matrix3f hmd_rotation = renderer_->GetHMDPose().block(0, 0, 3, 3);
+  Eigen::Matrix3f hmd_rotation = renderer_->GetHMDPose().block(0, 0, 3, 3).transpose();
 
   int best_frame = -1;
   double best_score = -1;
-  const Eigen::Vector3f lookat = hmd_rotation * Eigen::Vector3f(0, 0, -1);
+  Eigen::Vector3f lookat = -hmd_rotation.col(2);
   for (int i = 0; i < frame_lookats_.size(); i++) {
     const double score = lookat.dot(frame_lookats_[i]);
     if (score > best_score) {
@@ -143,10 +144,9 @@ void StereoVideoAngularRenderer::Render() {
     }
   }
   CHECK_GE(best_frame, 0);
-
   Eigen::Matrix4f mvp = Eigen::Matrix4f::Identity();
-  Eigen::Matrix3f inverse_frame_rotation = frame_rotations_[best_frame];
-  mvp.block(0, 0, 3, 3) *= inverse_frame_rotation.transpose();
+
+  mvp.block(0, 0, 3, 3) *= hmd_rotation * frame_rotations_[best_frame];
 
   Eigen::Matrix4f mvp_left = renderer_->GetProjectionMatrix(0) * mvp;
   Eigen::Matrix4f mvp_right = renderer_->GetProjectionMatrix(1) * mvp;

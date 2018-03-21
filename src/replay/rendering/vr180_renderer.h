@@ -5,6 +5,7 @@
 #include "replay/rendering/vr_context.h"
 #include "replay/third_party/theia/sfm/camera/camera.h"
 #include "replay/vr_180/vr_180_video_reader.h"
+#include <chrono>
 
 #ifdef __APPLE__
 #define GLFW_INCLUDE_GLCOREARB
