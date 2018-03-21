@@ -57,8 +57,8 @@ void AngleAxisToLookAtUpvec(const Eigen::Vector3f &angle_axis,
                             Eigen::Matrix3f &rotation) {
   Eigen::AngleAxisf aa(angle_axis.norm(), angle_axis.normalized());
   rotation = aa.toRotationMatrix();
-  lookat = rotation.col(2);
-  up = rotation.col(1);
+  lookat = rotation * Eigen::Vector3f(0, 0, -1);
+  up = rotation * Eigen::Vector3f(0, 1, 0);
 }
 
 } // namespace
@@ -139,11 +139,11 @@ void StereoVideoAngularRenderer::Render() {
   renderer_->ToggleCompanionWindow(true);
   renderer_->UpdatePose();
   Eigen::Matrix3f hmd_rotation =
-      renderer_->GetHMDPose().block(0, 0, 3, 3).transpose();
+      renderer_->GetHMDPose().block(0, 0, 3, 3);
 
   int best_frame = -1;
   double best_score = -1;
-  const Eigen::Vector3f lookat = hmd_rotation.col(2);
+  const Eigen::Vector3f lookat = hmd_rotation * Eigen::Vector3f(0, 0, -1);
   for (int i = 0; i < frame_lookats_.size(); i++) {
     const double score = lookat.dot(frame_lookats_[i]);
     if (score > best_score) {
@@ -155,8 +155,8 @@ void StereoVideoAngularRenderer::Render() {
 
   Eigen::Matrix4f mvp = Eigen::Matrix4f::Identity();
   Eigen::Matrix3f inverse_frame_rotation =
-      frame_rotations_[best_frame].inverse();
-  mvp.block(0, 0, 3, 3) *= hmd_rotation * inverse_frame_rotation;
+      frame_rotations_[best_frame];
+  mvp.block(0, 0, 3, 3) *= inverse_frame_rotation.transpose() *;
 
   Eigen::Matrix4f mvp_left = renderer_->GetProjectionMatrix(0) * mvp;
   Eigen::Matrix4f mvp_right = renderer_->GetProjectionMatrix(1) * mvp;
@@ -165,6 +165,7 @@ void StereoVideoAngularRenderer::Render() {
   renderer_->UploadMesh(meshes_[0]);
   renderer_->SetProjectionMatrix(mvp_left);
   renderer_->UploadShaderUniform(0, "right");
+  LOG(INFO) << mvp_left;
   renderer_->RenderEye(0);
   renderer_->UploadMesh(meshes_[1]);
   renderer_->SetProjectionMatrix(mvp_right);

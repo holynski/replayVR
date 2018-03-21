@@ -21,6 +21,7 @@ class VR180VideoReader : public VideoReader {
   bool Open(const std::string& filename);
   bool GetOrientedFrame(cv::Mat3b& frame, Eigen::Vector3f& angle_axis);
   std::vector<Mesh> GetMeshes();
+  Mesh GetTrajectoryMesh();
  private:
   bool ParseAllMetadata();
   Eigen::Vector3f GetAngleAxis(const double& time_in_seconds);

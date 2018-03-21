@@ -81,8 +81,7 @@ class VRContext : public OpenGLContext {
   // }
   void RenderEye(const int eye_id);
 
-  // Returns the 3x4 rotation&translation matrix of the global coordinate system
-  // to the coordinate system of the camera.
+  // Returns the WORLD->LOCAL 3x4 rotation&translation matrix
   Eigen::Matrix4f GetHMDPose() const;
 
   // Returns the 4x4 projection matrix of a particular eye in OpenGL coordinates

@@ -1,16 +1,30 @@
 #include "vr_180_video_reader.h"
+#include <Eigen/Dense>
+#include <Eigen/Sparse>
 #include <glog/logging.h>
+#include <iostream>
+#include <opencv2/core.hpp>
 #include <replay/io/video_reader.h>
 #include <replay/mesh/mesh.h>
 #include <replay/vr_180/mesh_projection_parser.h>
-#include <Eigen/Sparse>
-#include <iostream>
-#include <opencv2/core.hpp>
 #include <unordered_map>
 
 namespace replay {
 
-bool VR180VideoReader::Open(const std::string& filename) {
+namespace {
+
+void AngleAxisToZYX(const Eigen::Vector3f &angle_axis, Eigen::Vector3f &lookat,
+                    Eigen::Vector3f &up, Eigen::Vector3f &left) {
+  Eigen::AngleAxisf aa(angle_axis.norm(), angle_axis.normalized());
+  Eigen::Matrix3f rotation = aa.toRotationMatrix().transpose();
+  lookat = rotation.col(2);
+  up = rotation.col(1);
+  left = rotation.col(0);
+}
+
+} // namespace
+
+bool VR180VideoReader::Open(const std::string &filename) {
   VideoReader::Open(filename);
 
   if (!ParseAllMetadata()) {
@@ -20,11 +34,11 @@ bool VR180VideoReader::Open(const std::string& filename) {
   return true;
 }
 
-bool VR180VideoReader::GetOrientedFrame(cv::Mat3b& frame,
-                                        Eigen::Vector3f& angle_axis) {
+bool VR180VideoReader::GetOrientedFrame(cv::Mat3b &frame,
+                                        Eigen::Vector3f &angle_axis) {
   CHECK(file_open_) << "Call Open() first!";
 
-  Packet* packet;
+  Packet *packet;
   while ((packet = ReadPacket()) && packet->stream_id != video_stream_idx_) {
     if (packet->stream_id == -1) {
       return false;
@@ -35,7 +49,7 @@ bool VR180VideoReader::GetOrientedFrame(cv::Mat3b& frame,
     return false;
   }
 
-  VideoPacket* video_packet = static_cast<VideoPacket*>(packet);
+  VideoPacket *video_packet = static_cast<VideoPacket *>(packet);
   frame = AVFrameToMat(video_packet->frame);
   angle_axis = GetAngleAxis(video_packet->time_in_seconds);
 
@@ -44,11 +58,11 @@ bool VR180VideoReader::GetOrientedFrame(cv::Mat3b& frame,
 
 std::vector<Mesh> VR180VideoReader::GetMeshes() {
   CHECK(file_open_) << "Call Open() first!";
-  uint8_t* side_data = nullptr;
+  uint8_t *side_data = nullptr;
   CHECK_NOTNULL((side_data = av_stream_get_side_data(
                      video_stream_, AV_PKT_DATA_SPHERICAL, nullptr)));
-  AVSphericalMapping* mapping =
-      reinterpret_cast<AVSphericalMapping*>(side_data);
+  AVSphericalMapping *mapping =
+      reinterpret_cast<AVSphericalMapping *>(side_data);
 
   MeshProjectionParser parser;
   std::vector<Mesh> meshes =
@@ -68,14 +82,14 @@ bool VR180VideoReader::ParseAllMetadata() {
       break;
     }
     if (packet.stream_index == metadata_stream_idx_) {
-      const uint16_t* buffer_data =
-          reinterpret_cast<const uint16_t*>(packet.data);
+      const uint16_t *buffer_data =
+          reinterpret_cast<const uint16_t *>(packet.data);
       if (buffer_data == nullptr) {
         LOG(ERROR) << "No metadata packet available.";
         return false;
       }
-      const CameraMotionMetadataAngleAxis* meta =
-          reinterpret_cast<const CameraMotionMetadataAngleAxis*>(buffer_data);
+      const CameraMotionMetadataAngleAxis *meta =
+          reinterpret_cast<const CameraMotionMetadataAngleAxis *>(buffer_data);
       if (meta->reserved != 0) {
         LOG(ERROR) << "Metadata is invalid!";
         return false;
@@ -96,11 +110,11 @@ bool VR180VideoReader::ParseAllMetadata() {
   return !angular_metadata_.empty();
 }
 
-Eigen::Vector3f VR180VideoReader::GetAngleAxis(const double& time) {
+Eigen::Vector3f VR180VideoReader::GetAngleAxis(const double &time) {
   double min_distance = 1;
   Eigen::Vector3f min_entry(0, 0, 0);
   double best_time = 0;
-  for (auto& entry : angular_metadata_) {
+  for (auto &entry : angular_metadata_) {
     const double distance = std::abs(entry.first - time);
     if (distance < min_distance) {
       min_distance = distance;
@@ -111,4 +125,51 @@ Eigen::Vector3f VR180VideoReader::GetAngleAxis(const double& time) {
   return min_entry;
 }
 
-}  // namespace replay
+Mesh VR180VideoReader::GetTrajectoryMesh() {
+  SeekToMetadata(0);
+  AVPacket packet;
+  av_init_packet(&packet);
+  packet.data = NULL;
+  packet.size = 0;
+  packet.stream_index = -1;
+  Mesh mesh;
+  static const float head_rotation_radius = 10.0f;
+  static const float pyramid_height = 0.5f;
+  static const float pyramid_width = 0.1f;
+  while (true) {
+    if (av_read_frame(format_context_, &packet) < 0) {
+      break;
+    }
+    if (packet.stream_index == video_stream_idx_) {
+      double time = packet.pts *
+                    static_cast<double>(metadata_stream_->time_base.num) /
+                    metadata_stream_->time_base.den;
+      Eigen::Vector3f aa = GetAngleAxis(time);
+      Eigen::Vector3f lookat, up, left;
+      AngleAxisToZYX(aa, lookat, up, left);
+      std::vector<VertexId> ids(5);
+      ids[0] = mesh.AddVertex(lookat * head_rotation_radius);
+      ids[1] = mesh.AddVertex((lookat * head_rotation_radius) +
+                              (pyramid_height * lookat) +
+                              pyramid_width * (up + left));
+	  ids[2] = mesh.AddVertex((lookat * head_rotation_radius) +
+		  (pyramid_height * lookat) +
+		  pyramid_width * (up - left));
+	  ids[3] = mesh.AddVertex((lookat * head_rotation_radius) +
+		  (pyramid_height * lookat) +
+		  pyramid_width * (-up + left));
+	  ids[4] = mesh.AddVertex((lookat * head_rotation_radius) +
+		  (pyramid_height * lookat) +
+		  pyramid_width * (-up - left));
+	  mesh.AddTriangleFace(ids[0], ids[2], ids[1]);
+	  mesh.AddTriangleFace(ids[0], ids[4], ids[2]);
+	  mesh.AddTriangleFace(ids[0], ids[1], ids[3]);
+	  mesh.AddTriangleFace(ids[0], ids[3], ids[4]);
+	  mesh.AddTriangleFace(ids[1], ids[2], ids[3]);
+	  mesh.AddTriangleFace(ids[3], ids[2], ids[4]);
+    }
+  }
+  return mesh;
+}
+
+} // namespace replay
