@@ -1,2 +1,5 @@
-add_executable(metadata_dump metadata_dump.cc)
-target_link_libraries(metadata_dump replay)
+add_executable(render_vr180_scene render_vr180_scene.cc)
+target_link_libraries(render_vr180_scene replay)
+
+add_executable(render_vr180_video render_vr180_video.cc)
+target_link_libraries(render_vr180_video replay)

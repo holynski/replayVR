@@ -21,8 +21,9 @@ set(REPLAY_SRC
   io/zlib_decompressor.cc
   mesh/mesh.cc
   rendering/opengl_context.cc
-  rendering/vr_context.cc
   rendering/stereo_video_angular_renderer.cc
+  rendering/vr180_renderer.cc
+  rendering/vr_context.cc
   util/lru_cache.cc
   vr_180/mesh_projection_parser.cc
   vr_180/vr_180_video.cc
@@ -41,9 +42,9 @@ set(REPLAY_LIBRARY_DEPENDENCIES
   ${GFLAGS_LIBRARIES}
   ${GLOG_LIBRARIES}
   ${GL_LIBRARIES}
+  ${OPENVR_LIBRARIES}
   ${OpenCV_LIBRARIES}
   ${ZLIB_LIBRARIES}
-  ${OPENVR_LIBRARIES}
   maxflow
   slic
   tinyply

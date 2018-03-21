@@ -1,28 +1,16 @@
 #include "vr_180_video_reader.h"
-#include <Eigen/Dense>
-#include <Eigen/Sparse>
 #include <glog/logging.h>
-#include <iostream>
-#include <opencv2/core.hpp>
 #include <replay/io/video_reader.h>
 #include <replay/mesh/mesh.h>
+#include <replay/util/matrix_utils.h>
 #include <replay/vr_180/mesh_projection_parser.h>
+#include <Eigen/Dense>
+#include <Eigen/Geometry>
+#include <iostream>
+#include <opencv2/core.hpp>
 #include <unordered_map>
 
 namespace replay {
-
-namespace {
-
-void AngleAxisToZYX(const Eigen::Vector3f &angle_axis, Eigen::Vector3f &lookat,
-                    Eigen::Vector3f &up, Eigen::Vector3f &left) {
-  Eigen::AngleAxisf aa(angle_axis.norm(), angle_axis.normalized());
-  Eigen::Matrix3f rotation = aa.toRotationMatrix().transpose();
-  lookat = rotation.col(2);
-  up = rotation.col(1);
-  left = rotation.col(0);
-}
-
-} // namespace
 
 bool VR180VideoReader::Open(const std::string &filename) {
   VideoReader::Open(filename);
@@ -35,7 +23,7 @@ bool VR180VideoReader::Open(const std::string &filename) {
 }
 
 bool VR180VideoReader::GetOrientedFrame(cv::Mat3b &frame,
-                                        Eigen::Vector3f &angle_axis) {
+                                        Eigen::Matrix3f &rotation) {
   CHECK(file_open_) << "Call Open() first!";
 
   Packet *packet;
@@ -51,7 +39,13 @@ bool VR180VideoReader::GetOrientedFrame(cv::Mat3b &frame,
 
   VideoPacket *video_packet = static_cast<VideoPacket *>(packet);
   frame = AVFrameToMat(video_packet->frame);
-  angle_axis = GetAngleAxis(video_packet->time_in_seconds);
+  const Eigen::AngleAxisf &angle_axis =
+      GetAngleAxis(video_packet->time_in_seconds);
+
+  rotation = angle_axis.toRotationMatrix().transpose();
+  Eigen::Vector3f yaw_pitch_roll = DecomposeRotation(rotation);
+  yaw_pitch_roll[0] *= -1;
+  rotation = ComposeRotation(yaw_pitch_roll);
 
   return true;
 }
@@ -98,11 +92,13 @@ bool VR180VideoReader::ParseAllMetadata() {
         LOG(ERROR) << "Only angle-axis supported!";
         return false;
       }
+      Eigen::Vector3f vector(meta->angle_axis[0], meta->angle_axis[1],
+                             meta->angle_axis[2]);
+
       angular_metadata_[packet.pts *
                         static_cast<double>(metadata_stream_->time_base.num) /
                         metadata_stream_->time_base.den] =
-          Eigen::Vector3f(meta->angle_axis[0], meta->angle_axis[1],
-                          meta->angle_axis[2]);
+          Eigen::AngleAxisf(vector.norm(), vector.normalized());
     }
   }
   SeekToFrame(0);
@@ -110,9 +106,9 @@ bool VR180VideoReader::ParseAllMetadata() {
   return !angular_metadata_.empty();
 }
 
-Eigen::Vector3f VR180VideoReader::GetAngleAxis(const double &time) {
+Eigen::AngleAxisf VR180VideoReader::GetAngleAxis(const double &time) {
   double min_distance = 1;
-  Eigen::Vector3f min_entry(0, 0, 0);
+  Eigen::AngleAxisf min_entry;
   double best_time = 0;
   for (auto &entry : angular_metadata_) {
     const double distance = std::abs(entry.first - time);
@@ -126,50 +122,42 @@ Eigen::Vector3f VR180VideoReader::GetAngleAxis(const double &time) {
 }
 
 Mesh VR180VideoReader::GetTrajectoryMesh() {
+  CHECK(file_open_) << "Call Open() first!";
   SeekToMetadata(0);
-  AVPacket packet;
-  av_init_packet(&packet);
-  packet.data = NULL;
-  packet.size = 0;
-  packet.stream_index = -1;
   Mesh mesh;
   static const float head_rotation_radius = 10.0f;
   static const float pyramid_height = 0.5f;
   static const float pyramid_width = 0.1f;
-  while (true) {
-    if (av_read_frame(format_context_, &packet) < 0) {
-      break;
-    }
-    if (packet.stream_index == video_stream_idx_) {
-      double time = packet.pts *
-                    static_cast<double>(metadata_stream_->time_base.num) /
-                    metadata_stream_->time_base.den;
-      Eigen::Vector3f aa = GetAngleAxis(time);
-      Eigen::Vector3f lookat, up, left;
-      AngleAxisToZYX(aa, lookat, up, left);
-      std::vector<VertexId> ids(5);
-      ids[0] = mesh.AddVertex(lookat * head_rotation_radius);
-      ids[1] = mesh.AddVertex((lookat * head_rotation_radius) +
-                              (pyramid_height * lookat) +
-                              pyramid_width * (up + left));
-	  ids[2] = mesh.AddVertex((lookat * head_rotation_radius) +
-		  (pyramid_height * lookat) +
-		  pyramid_width * (up - left));
-	  ids[3] = mesh.AddVertex((lookat * head_rotation_radius) +
-		  (pyramid_height * lookat) +
-		  pyramid_width * (-up + left));
-	  ids[4] = mesh.AddVertex((lookat * head_rotation_radius) +
-		  (pyramid_height * lookat) +
-		  pyramid_width * (-up - left));
-	  mesh.AddTriangleFace(ids[0], ids[2], ids[1]);
-	  mesh.AddTriangleFace(ids[0], ids[4], ids[2]);
-	  mesh.AddTriangleFace(ids[0], ids[1], ids[3]);
-	  mesh.AddTriangleFace(ids[0], ids[3], ids[4]);
-	  mesh.AddTriangleFace(ids[1], ids[2], ids[3]);
-	  mesh.AddTriangleFace(ids[3], ids[2], ids[4]);
-    }
+  Eigen::Matrix3f rotation;
+  Eigen::Vector3f lookat, up, left;
+  cv::Mat3b image;
+  while (GetOrientedFrame(image, rotation)) {
+    lookat = -rotation.col(2);
+    up = rotation.col(1);
+    left = rotation.col(0);
+
+    std::vector<VertexId> ids(5);
+    ids[0] = mesh.AddVertex(lookat * head_rotation_radius);
+    ids[1] =
+        mesh.AddVertex((lookat * head_rotation_radius) +
+                       (pyramid_height * lookat) + pyramid_width * (up + left));
+    ids[2] =
+        mesh.AddVertex((lookat * head_rotation_radius) +
+                       (pyramid_height * lookat) + pyramid_width * (up - left));
+    ids[3] = mesh.AddVertex((lookat * head_rotation_radius) +
+                            (pyramid_height * lookat) +
+                            pyramid_width * (-up + left));
+    ids[4] = mesh.AddVertex((lookat * head_rotation_radius) +
+                            (pyramid_height * lookat) +
+                            pyramid_width * (-up - left));
+    mesh.AddTriangleFace(ids[0], ids[2], ids[1]);
+    mesh.AddTriangleFace(ids[0], ids[4], ids[2]);
+    mesh.AddTriangleFace(ids[0], ids[1], ids[3]);
+    mesh.AddTriangleFace(ids[0], ids[3], ids[4]);
+    mesh.AddTriangleFace(ids[1], ids[2], ids[3]);
+    mesh.AddTriangleFace(ids[3], ids[2], ids[4]);
   }
   return mesh;
 }
 
-} // namespace replay
+}  // namespace replay

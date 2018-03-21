@@ -1,12 +1,13 @@
 #include "replay/rendering/stereo_video_angular_renderer.h"
+#include <openvr.h>
+#include <Eigen/Dense>
+#include <Eigen/Geometry>
 #include "replay/depth_map/depth_map.h"
 #include "replay/mesh/mesh.h"
 #include "replay/rendering/vr_context.h"
 #include "replay/third_party/theia/sfm/types.h"
 #include "replay/util/types.h"
 #include "replay/vr_180/vr_180_video_reader.h"
-#include <Eigen/Dense>
-#include <openvr.h>
 
 namespace replay {
 namespace {
@@ -42,7 +43,7 @@ static const std::string fragment_source =
     "{\n"
     "    color = texture(images, vec3(frag_uv, image_index)).rgb;"
     "}\n";
-} // namespace
+}  // namespace
 
 StereoVideoAngularRenderer::StereoVideoAngularRenderer(
     std::shared_ptr<VRContext> renderer)
@@ -50,18 +51,7 @@ StereoVideoAngularRenderer::StereoVideoAngularRenderer(
   CHECK(renderer->IsInitialized()) << "Initialize OpenGL renderer first!";
 }
 
-namespace {
-
-void AngleAxisToLookAtUpvec(const Eigen::Vector3f &angle_axis,
-                            Eigen::Vector3f &lookat, Eigen::Vector3f &up,
-                            Eigen::Matrix3f &rotation) {
-  Eigen::AngleAxisf aa(angle_axis.norm(), angle_axis.normalized());
-  rotation = aa.toRotationMatrix();
-  lookat = rotation * Eigen::Vector3f(0, 0, -1);
-  up = rotation * Eigen::Vector3f(0, 1, 0);
-}
-
-} // namespace
+namespace {}  // namespace
 
 bool StereoVideoAngularRenderer::Initialize(
     const std::string &spherical_video_filename) {
@@ -88,7 +78,6 @@ bool StereoVideoAngularRenderer::Initialize(
   }
 
   cv::Mat3b image;
-  Eigen::Vector3f angle;
 
   static const int number_of_frames = 3;
 
@@ -104,14 +93,17 @@ bool StereoVideoAngularRenderer::Initialize(
 
   int index = 0;
   int total_frames = 0;
-  while (reader_.GetOrientedFrame(image, angle)) {
-    total_frames ++;
+  Eigen::Matrix3f rotation;
+  while (reader_.GetOrientedFrame(image, rotation)) {
+    total_frames++;
     if (index == number_of_frames) {
       break;
     }
 
-    AngleAxisToLookAtUpvec(angle, frame_lookats_[index], frame_upvecs_[index],
-                           frame_rotations_[index]);
+    frame_rotations_[index] = rotation;
+    frame_lookats_[index] = -frame_rotations_[index].col(2);
+    frame_upvecs_[index] = frame_rotations_[index].col(1);
+
     bool skip_this_frame = false;
     for (int i = 0; i < index; i++) {
       if (frame_lookats_[i].dot(frame_lookats_[index]) > 0.7) {
@@ -138,8 +130,7 @@ void StereoVideoAngularRenderer::Render() {
   CHECK(renderer_->UseShader(shader_id_));
   renderer_->ToggleCompanionWindow(true);
   renderer_->UpdatePose();
-  Eigen::Matrix3f hmd_rotation =
-      renderer_->GetHMDPose().block(0, 0, 3, 3);
+  Eigen::Matrix3f hmd_rotation = renderer_->GetHMDPose().block(0, 0, 3, 3);
 
   int best_frame = -1;
   double best_score = -1;
@@ -154,9 +145,8 @@ void StereoVideoAngularRenderer::Render() {
   CHECK_GE(best_frame, 0);
 
   Eigen::Matrix4f mvp = Eigen::Matrix4f::Identity();
-  Eigen::Matrix3f inverse_frame_rotation =
-      frame_rotations_[best_frame];
-  mvp.block(0, 0, 3, 3) *= inverse_frame_rotation.transpose() *;
+  Eigen::Matrix3f inverse_frame_rotation = frame_rotations_[best_frame];
+  mvp.block(0, 0, 3, 3) *= inverse_frame_rotation.transpose();
 
   Eigen::Matrix4f mvp_left = renderer_->GetProjectionMatrix(0) * mvp;
   Eigen::Matrix4f mvp_right = renderer_->GetProjectionMatrix(1) * mvp;
@@ -173,4 +163,4 @@ void StereoVideoAngularRenderer::Render() {
   renderer_->RenderEye(1);
 }
 
-} // namespace replay
+}  // namespace replay
