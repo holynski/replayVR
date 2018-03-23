@@ -37,11 +37,10 @@ static const std::string fragment_source =
     "out vec3 color;\n"
     "in vec3 pos;"
     "in vec2 frag_uv;"
-    "uniform sampler2DArray images;"
-    "uniform int image_index;"
+    "uniform sampler2D image;"
     "void main()\n"
     "{\n"
-    "    color = texture(images, vec3(frag_uv, image_index)).rgb;"
+    "    color = texture(image, frag_uv).rgb;"
     "}\n";
 }  // namespace
 
@@ -79,71 +78,70 @@ bool StereoVideoAngularRenderer::Initialize(
 
   cv::Mat3b image;
 
-  static const int number_of_frames = 600;
-
   CHECK(renderer_->UseShader(shader_id_));
-  renderer_->AllocateTextureArray("images", reader_.GetWidth(),
-                                  reader_.GetHeight(), image.channels(),
-                                  number_of_frames, number_of_frames > 100);
-  frame_lookats_ =
-      std::vector<Eigen::Vector3f>(number_of_frames, Eigen::Vector3f(0, 0, 0));
-  frame_upvecs_ = std::vector<Eigen::Vector3f>(number_of_frames);
-  frame_rotations_ = std::vector<Eigen::Matrix3f>(number_of_frames);
   LOG(INFO) << "Uploading frames...";
 
-  int index = 0;
   int total_frames = 0;
   Eigen::Matrix3f rotation;
+  int index = 0;
   while (reader_.GetOrientedFrame(image, rotation)) {
-    total_frames++;
-    if (index == number_of_frames) {
-      break;
-    }
+	  total_frames++;
+	  cv::imshow("loading", image);
+	  cv::waitKey(1);
 
-    frame_rotations_[index] = rotation;
-    frame_lookats_[index] = -frame_rotations_[index].row(2);
-    frame_upvecs_[index] = frame_rotations_[index].row(1);
+	
+		if (frame_lookats_.size() > 0 && frame_lookats_[frame_lookats_.size() - 1].dot(-rotation.row(2)) > cos(angular_resolution_ * M_PI / 180.0)) {
+			LOG(INFO) << "Skipped frame " << total_frames;
+			continue;
+		}
+	LOG(INFO) << "Added frame!!!!!!!!!!!! " << total_frames;
+	frame_rotations_.emplace_back(rotation);
+	frame_lookats_.push_back(-frame_rotations_[index].row(2));
+	frame_upvecs_.push_back(frame_rotations_[index].row(1));
+	frames_[index] = (image);
 
-    bool skip_this_frame = false;
-    for (int i = 0; i < index; i++) {
-      if (frame_lookats_[i].dot(frame_lookats_[index]) > 0.99) {
-        //skip_this_frame = true;
-        break;
-      }
-    }
-    if (skip_this_frame) {
-      frame_lookats_[index] = Eigen::Vector3f(0, 0, 0);
-      continue;
-    }
-    renderer_->UploadTextureToArray(image, "images", index);
-    index++;
+	index++;
   }
-  LOG(INFO) << "Kept " << index << "/" << total_frames << " frames.";
-
-  LOG(INFO) << "Done";
+  current_frame_ = frame_lookats_.size() / 2;
+  LOG(INFO) << "Loaded " << index << "/" << total_frames << " frames.";
+  LOG(INFO) << "Done. Found " << index << " frames.";
 
   return true;
 }
 int counter = 0;
-int framex = 0;
 void StereoVideoAngularRenderer::Render() {
   CHECK(is_initialized_) << "Initialize renderer first.";
   CHECK(renderer_->UseShader(shader_id_));
-  renderer_->ToggleCompanionWindow(true);
+  renderer_->ToggleCompanionWindow(false);
   renderer_->UpdatePose();
   Eigen::Matrix3f hmd_rotation = renderer_->GetHMDPose().block(0, 0, 3, 3).transpose();
 
   int best_frame = -1;
   double best_score = -1;
   Eigen::Vector3f lookat = -hmd_rotation.col(2);
-  for (int i = 0; i < frame_lookats_.size(); i++) {
-    const double score = lookat.dot(frame_lookats_[i]);
-    if (score > best_score) {
-      best_score = score;
-      best_frame = i;
-    }
+  for (int i = 0; i < (1.0f / angular_resolution_) * 45; i++) {
+	  if (current_frame_ - i < frame_lookats_.size()) {
+		  const double score = lookat.dot(frame_lookats_[current_frame_ - i]);
+		  if (score > best_score) {
+			  best_score = score;
+			  best_frame = current_frame_ - i;
+		  }
+	  }
+	if (current_frame_ + i < frame_lookats_.size()) {
+		const double score = lookat.dot(frame_lookats_[current_frame_ + i]);
+		if (score > best_score) {
+			best_score = score;
+			best_frame = current_frame_ + i;
+		}
+	}
+	if (best_score > cos(angular_resolution_ * 3 * M_PI / 180.0)) {
+		break;
+	}
   }
+  current_frame_ = best_frame;
+
   CHECK_GE(best_frame, 0);
+  renderer_->UploadTexture(frames_[best_frame], "image");
   Eigen::Matrix4f mvp = Eigen::Matrix4f::Identity();
 
   mvp.block(0, 0, 3, 3) *= hmd_rotation * frame_rotations_[best_frame];
@@ -151,11 +149,10 @@ void StereoVideoAngularRenderer::Render() {
   Eigen::Matrix4f mvp_left = renderer_->GetProjectionMatrix(0) * mvp;
   Eigen::Matrix4f mvp_right = renderer_->GetProjectionMatrix(1) * mvp;
 
-  renderer_->UploadShaderUniform(best_frame, "image_index");
+  
   renderer_->UploadMesh(meshes_[0]);
   renderer_->SetProjectionMatrix(mvp_left);
   renderer_->UploadShaderUniform(0, "right");
-  LOG(INFO) << mvp_left;
   renderer_->RenderEye(0);
   renderer_->UploadMesh(meshes_[1]);
   renderer_->SetProjectionMatrix(mvp_right);

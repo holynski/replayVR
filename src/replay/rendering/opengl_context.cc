@@ -612,8 +612,8 @@ bool OpenGLContext::UploadTextureInternal(void* data, const int& width,
   glBindTexture(GL_TEXTURE_2D, tex);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
   glTexImage2D(GL_TEXTURE_2D, 0, internal_format, width, height, 0, format,
                datatype, data);
   GLint texture_location =
@@ -635,7 +635,7 @@ bool OpenGLContext::UploadTexture(const cv::Mat& image,
   if (dst.channels() == 3)
 
     return UploadTextureInternal(reinterpret_cast<void*>(dst.data), dst.cols,
-                                 dst.rows, GL_BGR, GL_UNSIGNED_BYTE, GL_RGB8,
+                                 dst.rows, GL_RGB, GL_UNSIGNED_BYTE, GL_RGB8,
                                  name);
   if (dst.channels() == 4)
     return UploadTextureInternal(reinterpret_cast<void*>(dst.data), dst.cols,
@@ -998,6 +998,7 @@ void OpenGLContext::RenderToImage(cv::Mat* image) {
       break;
     case 3:
       RenderToBufferInternal((void*)image->data, GL_RGB, GL_UNSIGNED_BYTE);
+	  cv::cvtColor(*image, *image, CV_RGB2BGR);
       break;
     case 4:
       CHECK(false);
