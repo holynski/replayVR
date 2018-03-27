@@ -100,16 +100,16 @@ void VRContext::UpdatePoseFromKeyboard(int key, int action, int modifier) {
   }
   switch (key) {
     case GLFW_KEY_UP:
-      keyboard_pitch_ += 0.001;
+      keyboard_pitch_ += 0.005;
       break;
     case GLFW_KEY_DOWN:
-      keyboard_pitch_ -= 0.001;
+      keyboard_pitch_ -= 0.005;
       break;
     case GLFW_KEY_RIGHT:
-      keyboard_yaw_ -= 0.001;
+      keyboard_yaw_ -= 0.005;
       break;
     case GLFW_KEY_LEFT:
-      keyboard_yaw_ += 0.001;
+      keyboard_yaw_ += 0.005;
       break;
     case GLFW_KEY_W:
       keyboard_translation_[2] += 0.05;
@@ -260,5 +260,5 @@ void VRContext::RenderEye(const int eye_id) {
     UseShader(shader);
   }
 }
-    
+
 }  // namespace replay
