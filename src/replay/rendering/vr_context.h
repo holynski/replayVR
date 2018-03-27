@@ -18,6 +18,7 @@ namespace replay {
 // }
 class VRContext : public OpenGLContext {
  public:
+  VRContext();
   //
   //
   // Functions for standard HMD rendering (rendering a mesh using a single
@@ -26,10 +27,11 @@ class VRContext : public OpenGLContext {
   //
 
   // An override of the default OpenGLContext Initialize() function which also
-  // sets up the VR environment. 
-  // If a VR HMD is not available, this function will initialize an HMD emulator as follows:
+  // sets up the VR environment.
+  // If a VR HMD is not available, this function will initialize an HMD emulator
+  // as follows:
   //   - The companion window will be enabled automatically.
-  //   - Manual controls will be enabled, allowing navigation with the keyboard 
+  //   - Manual controls will be enabled, allowing navigation with the keyboard
   //     (WASD = translate, arrows/mouse = rotate)
   bool Initialize();
 
@@ -40,8 +42,8 @@ class VRContext : public OpenGLContext {
 
   // Polls the HMD for the current pose, and then renders both eyes to the HMD.
   // Both eyes will render the same global geometry, and will use the same
-  // shader and uniform values. Default to using this function for rendering unless you
-  // need to:
+  // shader and uniform values. Default to using this function for rendering
+  // unless you need to:
   //     - Render a different mesh for each eye
   //     - Have different shader / shader uniforms for each eye
   //     - Have different OpenGL configurations for each eye
@@ -56,9 +58,10 @@ class VRContext : public OpenGLContext {
   //
   //
 
-  // Fetches the most recent HMD and controller poses. 
-  // If using the advanced functionality, this should be called before each pair of left/right RenderEye() calls.
-  // If using an emulator, this function does nothing.
+  // Fetches the most recent HMD and controller poses.
+  // If using the advanced functionality, this should be called before each pair
+  // of left/right RenderEye() calls. If using an emulator, this function does
+  // nothing.
   void UpdatePose();
 
   // Renders a single eye to the HMD. This call is intended for more advanced
@@ -94,10 +97,10 @@ class VRContext : public OpenGLContext {
   vr::IVRSystem* hmd_;
   Eigen::Matrix4f left_projection_;
   Eigen::Matrix4f right_projection_;
-  float keyboard_pitch_ = 0.0f;
-  float keyboard_yaw_ = 0.0f;
+  float keyboard_pitch_;
+  float keyboard_yaw_;
   Eigen::Vector3f keyboard_translation_ = Eigen::Vector3f::Zero();
-  bool emulated_hmd_ = false;
+  bool emulated_hmd_;
   uint32_t hmd_viewport_width_;
   uint32_t hmd_viewport_height_;
   vr::TrackedDevicePose_t device_poses_[vr::k_unMaxTrackedDeviceCount];
@@ -105,9 +108,10 @@ class VRContext : public OpenGLContext {
   int hmd_index_;
   bool companion_window_enabled_;
   int companion_window_shader_;
-  int companion_width_ = 2000;
-  int companion_height_ = 1000;
+  int companion_width_;
+  int companion_height_;
   cv::Mat3b image_;
+  bool vr_initialized_;
 };
 
 }  // namespace replay

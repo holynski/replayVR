@@ -45,9 +45,13 @@ class VideoReader {
   // otherwise.
   bool Open(const std::string& filename);
 
-  // Just returns the next video frame. It will be empty if the end of the video
-  // has been reached.
-  cv::Mat3b ReadFrame();
+  // Just returns the next video frame. It will be empty (cv::Mat::empty() ==
+  // true) if the end of the video has been reached.
+  //
+  // If the 'bgr' flag is disabled, the returned image will be in RGB format
+  // instead of BGR. This is useful when you want to avoid extra pixel type
+  // conversion when uploading to OpenGL.
+  cv::Mat3b ReadFrame(bool bgr = true);
 
   // Returns the next packet in the video file. This may be from either a Video,
   // Audio, or Metadata stream. If the end of the stream has been reached, or
@@ -68,7 +72,7 @@ class VideoReader {
   int GetHeight() const;
 
  protected:
-  cv::Mat3b AVFrameToMat(AVFrame* frame) const;
+  cv::Mat3b AVFrameToMat(AVFrame* frame, bool bgr) const;
   bool file_open_ = false;
   unsigned int video_length_;
   AVFormatContext* format_context_ = nullptr;

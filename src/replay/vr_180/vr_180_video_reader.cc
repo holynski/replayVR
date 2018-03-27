@@ -22,6 +22,16 @@ bool VR180VideoReader::Open(const std::string &filename) {
   return true;
 }
 
+namespace {
+Eigen::Matrix3f AngleAxisToRotation(const Eigen::AngleAxisf &angle_axis) {
+  Eigen::Matrix3f rotation = angle_axis.toRotationMatrix().transpose();
+  Eigen::Vector3f yaw_pitch_roll = DecomposeRotation(rotation);
+  yaw_pitch_roll[0] *= -1;
+  rotation = ComposeRotation(yaw_pitch_roll);
+  return rotation;
+}
+}  // namespace
+
 bool VR180VideoReader::GetOrientedFrame(cv::Mat3b &frame,
                                         Eigen::Matrix3f &rotation) {
   CHECK(file_open_) << "Call Open() first!";
@@ -38,14 +48,10 @@ bool VR180VideoReader::GetOrientedFrame(cv::Mat3b &frame,
   }
 
   VideoPacket *video_packet = static_cast<VideoPacket *>(packet);
-  frame = AVFrameToMat(video_packet->frame);
+  frame = AVFrameToMat(video_packet->frame, false);
   const Eigen::AngleAxisf &angle_axis =
       GetAngleAxis(video_packet->time_in_seconds);
-
-  rotation = angle_axis.toRotationMatrix().transpose();
-  Eigen::Vector3f yaw_pitch_roll = DecomposeRotation(rotation);
-  yaw_pitch_roll[0] *= -1;
-  rotation = ComposeRotation(yaw_pitch_roll);
+  rotation = AngleAxisToRotation(angle_axis);
 
   return true;
 }

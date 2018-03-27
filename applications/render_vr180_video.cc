@@ -16,8 +16,8 @@ int main(int argc, char **argv) {
   CHECK(FLAGS_video_file.length() > 0) << "Filename is empty.";
   replay::VR180VideoReader reader;
 
-  std::shared_ptr<replay::OpenGLContext> renderer =
-      std::make_shared<replay::OpenGLContext>();
+  std::shared_ptr<replay::VRContext> renderer =
+      std::make_shared<replay::VRContext>();
   CHECK(renderer->Initialize());
 
   replay::VR180Renderer stereo_renderer(renderer);

@@ -62,7 +62,6 @@ bool StereoVideoAngularRenderer::Initialize(
 
   renderer_->SetViewportSize(1000, 1000);
 
-  renderer_->HideWindow();
   is_initialized_ = true;
   if (!reader_.Open(spherical_video_filename)) {
     LOG(ERROR) << "Couldn't open spherical video file: "
@@ -84,23 +83,23 @@ bool StereoVideoAngularRenderer::Initialize(
   int total_frames = 0;
   Eigen::Matrix3f rotation;
   int index = 0;
+
+  // TODO(holynski): Load metadata without decoding frames
   while (reader_.GetOrientedFrame(image, rotation)) {
-	  total_frames++;
-	  cv::imshow("loading", image);
-	  cv::waitKey(1);
+    total_frames++;
 
-	
-		if (frame_lookats_.size() > 0 && frame_lookats_[frame_lookats_.size() - 1].dot(-rotation.row(2)) > cos(angular_resolution_ * M_PI / 180.0)) {
-			LOG(INFO) << "Skipped frame " << total_frames;
-			continue;
-		}
-	LOG(INFO) << "Added frame!!!!!!!!!!!! " << total_frames;
-	frame_rotations_.emplace_back(rotation);
-	frame_lookats_.push_back(-frame_rotations_[index].row(2));
-	frame_upvecs_.push_back(frame_rotations_[index].row(1));
-	frames_[index] = (image);
+    if (frame_lookats_.size() > 0 &&
+        frame_lookats_[frame_lookats_.size() - 1].dot(-rotation.row(2)) >
+            cos(angular_resolution_ * M_PI / 180.0)) {
+      continue;
+    }
+    LOG(INFO) << "Added frame!!!!!!!!!!!! " << total_frames;
+    frame_rotations_.emplace_back(rotation);
+    frame_lookats_.push_back(-frame_rotations_[index].row(2));
+    frame_upvecs_.push_back(frame_rotations_[index].row(1));
+    frames_[index] = (image);
 
-	index++;
+    index++;
   }
   current_frame_ = frame_lookats_.size() / 2;
   LOG(INFO) << "Loaded " << index << "/" << total_frames << " frames.";
@@ -112,31 +111,31 @@ int counter = 0;
 void StereoVideoAngularRenderer::Render() {
   CHECK(is_initialized_) << "Initialize renderer first.";
   CHECK(renderer_->UseShader(shader_id_));
-  renderer_->ToggleCompanionWindow(false);
   renderer_->UpdatePose();
-  Eigen::Matrix3f hmd_rotation = renderer_->GetHMDPose().block(0, 0, 3, 3).transpose();
+  Eigen::Matrix3f hmd_rotation =
+      renderer_->GetHMDPose().block(0, 0, 3, 3).transpose();
 
   int best_frame = -1;
   double best_score = -1;
   Eigen::Vector3f lookat = -hmd_rotation.col(2);
   for (int i = 0; i < (1.0f / angular_resolution_) * 45; i++) {
-	  if (current_frame_ - i < frame_lookats_.size()) {
-		  const double score = lookat.dot(frame_lookats_[current_frame_ - i]);
-		  if (score > best_score) {
-			  best_score = score;
-			  best_frame = current_frame_ - i;
-		  }
-	  }
-	if (current_frame_ + i < frame_lookats_.size()) {
-		const double score = lookat.dot(frame_lookats_[current_frame_ + i]);
-		if (score > best_score) {
-			best_score = score;
-			best_frame = current_frame_ + i;
-		}
-	}
-	if (best_score > cos(angular_resolution_ * 3 * M_PI / 180.0)) {
-		break;
-	}
+    if (current_frame_ - i < frame_lookats_.size()) {
+      const double score = lookat.dot(frame_lookats_[current_frame_ - i]);
+      if (score > best_score) {
+        best_score = score;
+        best_frame = current_frame_ - i;
+      }
+    }
+    if (current_frame_ + i < frame_lookats_.size()) {
+      const double score = lookat.dot(frame_lookats_[current_frame_ + i]);
+      if (score > best_score) {
+        best_score = score;
+        best_frame = current_frame_ + i;
+      }
+    }
+    if (best_score > cos(angular_resolution_ * 3 * M_PI / 180.0)) {
+      break;
+    }
   }
   current_frame_ = best_frame;
 
@@ -149,7 +148,6 @@ void StereoVideoAngularRenderer::Render() {
   Eigen::Matrix4f mvp_left = renderer_->GetProjectionMatrix(0) * mvp;
   Eigen::Matrix4f mvp_right = renderer_->GetProjectionMatrix(1) * mvp;
 
-  
   renderer_->UploadMesh(meshes_[0]);
   renderer_->SetProjectionMatrix(mvp_left);
   renderer_->UploadShaderUniform(0, "right");

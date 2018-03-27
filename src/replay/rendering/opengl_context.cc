@@ -235,10 +235,6 @@ bool OpenGLContext::CompileFullScreenShader(const std::string& fragment,
   if (!CompileAndLinkShaders(full_screen_vs, fragment, shader_id)) {
     return false;
   }
-  UseShader(*shader_id);
-  if (!BindFullscreenTriangle()) {
-    return false;
-  }
 
   return true;
 }
@@ -359,7 +355,8 @@ bool OpenGLContext::SetMouseClickCallback(void (*callback)(int, int, int)) {
   return true;
 }
 
-bool OpenGLContext::SetKeyboardCallback(std::function<void(int,int,int)> callback) {
+bool OpenGLContext::SetKeyboardCallback(
+    std::function<void(int, int, int)> callback) {
   Keyboard_ = callback;
   return true;
 }
@@ -984,7 +981,7 @@ void OpenGLContext::RenderToImage(DepthMap* depth) {
 void OpenGLContext::RenderToImage(cv::Mat* image) {
   glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
   if (image->cols != width_ || image->rows != height_) {
-    cv::resize(*image, *image, cv::Size(width_, height_));
+    *image = cv::Mat(height_, width_, image->type());
   }
 
   switch (image->channels()) {
@@ -998,7 +995,6 @@ void OpenGLContext::RenderToImage(cv::Mat* image) {
       break;
     case 3:
       RenderToBufferInternal((void*)image->data, GL_RGB, GL_UNSIGNED_BYTE);
-	  cv::cvtColor(*image, *image, CV_RGB2BGR);
       break;
     case 4:
       CHECK(false);

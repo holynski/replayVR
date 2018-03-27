@@ -44,7 +44,7 @@ static const std::string fragment_source =
 
 }  // namespace
 
-VR180Renderer::VR180Renderer(std::shared_ptr<OpenGLContext> renderer)
+VR180Renderer::VR180Renderer(std::shared_ptr<VRContext> renderer)
     : renderer_(renderer), is_initialized_(false) {
   CHECK(renderer->IsInitialized()) << "Initialize OpenGL renderer first!";
   last_frame_time = std::chrono::system_clock::now();
@@ -58,8 +58,6 @@ bool VR180Renderer::Initialize(const std::string& spherical_video_filename) {
     LOG(ERROR) << "Couldn't compile shader!";
     return false;
   }
-
-  renderer_->SetViewportSize(1000, 1000);
 
   renderer_->ShowWindow();
   is_initialized_ = true;
@@ -77,17 +75,16 @@ bool VR180Renderer::Initialize(const std::string& spherical_video_filename) {
 
   CHECK(renderer_->UseShader(shader_id_));
 
-  LOG(INFO) << "Done";
-
   return true;
 }
 
 void VR180Renderer::Render() {
   CHECK(is_initialized_) << "Initialize renderer first.";
 
+  renderer_->UpdatePose();
+  // A hack to make sure this function isn't called too frequently
   std::chrono::time_point<std::chrono::system_clock> current_time =
       std::chrono::system_clock::now();
-
   time_t ms_difference = std::chrono::duration_cast<std::chrono::milliseconds>(
                              current_time - last_frame_time)
                              .count();
@@ -104,22 +101,25 @@ void VR180Renderer::Render() {
     reader_.SeekToFrame(0);
     return;
   }
-  Eigen::Matrix4f projection;
-  // Using the default projection matrix from the HTC Vive
-  projection << 0.755837, 0, -0.0563941, 0, 0, 0.680395, -0.00309659, 0, 0, 0,
-      -1.00503, -0.0100503, 0, 0, -1, 0;
 
   renderer_->UploadTexture(frame, "frame");
 
   Eigen::Matrix4f mvp = Eigen::Matrix4f::Identity();
-  mvp.block(0, 0, 3, 3) *= rotation;
+  mvp.block(0, 0, 3, 3) *=
+      renderer_->GetHMDPose().block(0, 0, 3, 3).transpose() * rotation;
 
-  mvp = projection * mvp;
+  Eigen::Matrix4f left_mvp, right_mvp;
+  left_mvp = renderer_->GetProjectionMatrix(0) * mvp;
+  right_mvp = renderer_->GetProjectionMatrix(1) * mvp;
 
   renderer_->UploadMesh(meshes_[0]);
-  renderer_->SetProjectionMatrix(mvp);
+  renderer_->SetProjectionMatrix(left_mvp);
   renderer_->UploadShaderUniform(0, "right");
-  renderer_->Render();
+  renderer_->RenderEye(0);
+  renderer_->UploadMesh(meshes_[1]);
+  renderer_->SetProjectionMatrix(right_mvp);
+  renderer_->UploadShaderUniform(1, "right");
+  renderer_->RenderEye(1);
 }
 
 }  // namespace replay

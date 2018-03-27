@@ -11,9 +11,9 @@ extern "C" {
 #include "zlib.h"
 }
 
-#include "replay/io/video_reader.h"
 #include <glog/logging.h>
 #include <opencv2/opencv.hpp>
+#include "replay/io/video_reader.h"
 
 // Get video seeking working
 //
@@ -151,9 +151,9 @@ Packet *VideoReader::ReadPacket() {
     return_packet->stream_id = packet.stream_index;
     return return_packet;
   }
-} // namespace replay
+}  // namespace replay
 
-cv::Mat3b VideoReader::ReadFrame() {
+cv::Mat3b VideoReader::ReadFrame(bool bgr) {
   CHECK(file_open_) << "Call Open() first!";
 
   Packet *packet;
@@ -165,7 +165,7 @@ cv::Mat3b VideoReader::ReadFrame() {
   }
 
   VideoPacket *video_packet = static_cast<VideoPacket *>(packet);
-  return AVFrameToMat(video_packet->frame);
+  return AVFrameToMat(video_packet->frame, bgr);
 }
 
 bool VideoReader::SeekToTime(const double time_in_seconds) {
@@ -236,7 +236,7 @@ int VideoReader::GetHeight() const {
   return height_;
 }
 
-cv::Mat3b VideoReader::AVFrameToMat(AVFrame *frame) const {
+cv::Mat3b VideoReader::AVFrameToMat(AVFrame *frame, bool bgr) const {
   cv::Mat3b retval = cv::Mat(height_, width_, CV_8UC3);
   AVFrame dst;
   dst.data[0] = (uint8_t *)retval.data;
@@ -245,7 +245,10 @@ cv::Mat3b VideoReader::AVFrameToMat(AVFrame *frame) const {
 
   SwsContext *convert_ctx;
   AVPixelFormat src_pixfmt = static_cast<AVPixelFormat>(frame->format);
-  AVPixelFormat dst_pixfmt = AV_PIX_FMT_BGR24;
+  AVPixelFormat dst_pixfmt = AV_PIX_FMT_RGB24;
+  if (bgr) {
+    dst_pixfmt = AV_PIX_FMT_BGR24;
+  }
   convert_ctx = sws_getContext(width_, height_, src_pixfmt, width_, height_,
                                dst_pixfmt, SWS_FAST_BILINEAR, NULL, NULL, NULL);
 
@@ -256,4 +259,4 @@ cv::Mat3b VideoReader::AVFrameToMat(AVFrame *frame) const {
   return retval;
 }
 
-} // namespace replay
+}  // namespace replay

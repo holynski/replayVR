@@ -26,7 +26,6 @@ set(REPLAY_SRC
   rendering/vr_context.cc
   util/lru_cache.cc
   vr_180/mesh_projection_parser.cc
-  vr_180/vr_180_video.cc
   vr_180/vr_180_video_reader.cc
   )
 
