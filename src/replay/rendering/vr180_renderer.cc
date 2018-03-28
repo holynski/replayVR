@@ -75,6 +75,11 @@ bool VR180Renderer::Initialize(const std::string& spherical_video_filename) {
 
   CHECK(renderer_->UseShader(shader_id_));
 
+  mesh_ids_.push_back(renderer_->UploadMesh(meshes_[0]));
+  //mesh_ids_.push_back(renderer_->UploadMesh(meshes_[1]));
+  CHECK_GE(mesh_ids_[0], 0);
+  //CHECK_GE(mesh_ids_[1], 0);
+
   return true;
 }
 
@@ -95,14 +100,13 @@ void VR180Renderer::Render() {
 
   CHECK(renderer_->UseShader(shader_id_));
 
-  cv::Mat3b frame;
-  Eigen::Matrix3f rotation;
-  if (!reader_.GetOrientedFrame(frame, rotation)) {
+  if (!reader_.FetchOrientedFrame()) {
     reader_.SeekToFrame(0);
     return;
   }
 
-  renderer_->UploadTexture(frame, "frame");
+  Eigen::Matrix3f rotation = reader_.GetFetchedOrientation();
+  renderer_->UploadTexture(reader_.GetFetchedFrame(), "frame");
 
   Eigen::Matrix4f mvp = Eigen::Matrix4f::Identity();
   mvp.block(0, 0, 3, 3) *=
@@ -112,11 +116,11 @@ void VR180Renderer::Render() {
   left_mvp = renderer_->GetProjectionMatrix(0) * mvp;
   right_mvp = renderer_->GetProjectionMatrix(1) * mvp;
 
-  renderer_->UploadMesh(meshes_[0]);
+  CHECK(renderer_->BindMesh(mesh_ids_[0]));
   renderer_->SetProjectionMatrix(left_mvp);
   renderer_->UploadShaderUniform(0, "right");
   renderer_->RenderEye(0);
-  renderer_->UploadMesh(meshes_[1]);
+  CHECK(renderer_->BindMesh(mesh_ids_[0]));
   renderer_->SetProjectionMatrix(right_mvp);
   renderer_->UploadShaderUniform(1, "right");
   renderer_->RenderEye(1);

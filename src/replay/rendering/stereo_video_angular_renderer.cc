@@ -108,6 +108,10 @@ bool StereoVideoAngularRenderer::Initialize(
   LOG(INFO) << "Loaded " << index << "/" << total_frames << " frames.";
   LOG(INFO) << "Done. Found " << index << " frames.";
   renderer_->ShowWindow();
+  mesh_ids_.push_back(renderer_->UploadMesh(meshes_[0]));
+  mesh_ids_.push_back(renderer_->UploadMesh(meshes_[1]));
+  CHECK_GE(mesh_ids_[0],0);
+  CHECK_GE(mesh_ids_[1],0);
 
   return true;
 }
@@ -152,11 +156,11 @@ void StereoVideoAngularRenderer::Render() {
   Eigen::Matrix4f mvp_left = renderer_->GetProjectionMatrix(0) * mvp;
   Eigen::Matrix4f mvp_right = renderer_->GetProjectionMatrix(1) * mvp;
 
-  renderer_->UploadMesh(meshes_[0]);
+  CHECK(renderer_->BindMesh(mesh_ids_[0]));
   renderer_->SetProjectionMatrix(mvp_left);
   renderer_->UploadShaderUniform(0, "right");
   renderer_->RenderEye(0);
-  renderer_->UploadMesh(meshes_[1]);
+  CHECK(renderer_->BindMesh(mesh_ids_[1])); 
   renderer_->SetProjectionMatrix(mvp_right);
   renderer_->UploadShaderUniform(1, "right");
   renderer_->RenderEye(1);

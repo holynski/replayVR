@@ -7,8 +7,8 @@
 #include <GL/glew.h>
 #else
 //#include <windows.h>
-#include <GL/glew.h>
 #include <GL/gl.h>
+#include <GL/glew.h>
 
 #endif  // __APPLE__
 #include <GLFW/glfw3.h>
@@ -55,10 +55,6 @@ class OpenGLContext {
   // Returns true if context creation was successful, and otherwise false.
   bool Initialize();
 
-  // Checks if the UploadMesh() function has been called with a valid mesh, and
-  // the mesh has been uploaded to the GPU.
-  bool HasMesh() const;
-
   // Checks if the Initialize() function has been successfully called.
   bool IsInitialized() const;
 
@@ -68,11 +64,20 @@ class OpenGLContext {
   // Hides the rendering window.
   void HideWindow();
 
-  // Uploads a mesh to the GPU. Must be called before any Render*() call. If a
-  // mesh already exists, it will be replaced.
-  // Returns true if the mesh was sucessfully uploaded and bound, and false
-  // otherwise.
-  bool UploadMesh(const Mesh& mesh);
+  // Uploads a mesh to the GPU.
+  // Returns a non-negative integer if the mesh was sucessfully uploaded and
+  // bound, and -1 otherwise. The returned integer corresponds to the mesh ID
+  // that has been uploaded.
+  int UploadMesh(const Mesh& mesh);
+
+  // Updates an existing mesh in GPU memory. The provided mesh_id is the one
+  // which was returned from UploadMesh(). Returns true if the mesh was
+  // successfully updated, and false otherwise.
+  bool UpdateMesh(const Mesh& mesh, const int mesh_id);
+
+  // Binds a mesh for rendering, using the mesh ID returned by UploadMesh().
+  // Must be called before any call to Render*().
+  bool BindMesh(const int mesh_id);
 
   // Sets the callback function to be called when the mouse moves.
   // The function signature should be:
@@ -104,7 +109,7 @@ class OpenGLContext {
   // - The modifier value defines whether any modifier keys (CTRL, ALT, SHIFT)
   //   were pressed while the main key was pressed. The values are defined here:
   //   http://www.glfw.org/docs/latest/group__mods.html
-  bool SetKeyboardCallback(std::function<void(int,int,int)> callback);
+  bool SetKeyboardCallback(std::function<void(int, int, int)> callback);
 
   // Returns the last recorded mouse position (X,Y).
   Eigen::Vector2d GetMousePosition() const;
@@ -152,12 +157,13 @@ class OpenGLContext {
   bool SetViewpoint(const theia::Camera& camera);
   bool SetViewpoint(const theia::Camera& camera, const float& near,
                     const float& far);
-  
-  // If not using the above SetViewpoint functions, you may instead use these two 
-  // functions, setting the MVP matrix manually, and adjusting the viewport (and window) 
-  // size. 
+
+  // If not using the above SetViewpoint functions, you may instead use these
+  // two functions, setting the MVP matrix manually, and adjusting the viewport
+  // (and window) size.
   bool SetProjectionMatrix(const Eigen::Matrix4f& projection);
-  void SetViewportSize(const int& width, const int& height, const bool resize_window = true);
+  void SetViewportSize(const int& width, const int& height,
+                       const bool resize_window = true);
 
   // Uploads values to the shader. It is expected that these values correspond
   // in type and name to uniforms defined in the shader.
@@ -244,6 +250,8 @@ class OpenGLContext {
   static int instantiated_renderers_;
   static std::unordered_map<GLFWwindow*, OpenGLContext*> window_to_renderer_;
   int current_program_;
+  int current_mesh_;
+  int fullscreen_triangle_mesh_;
   std::vector<GLuint> programs_;
   std::vector<GLuint> fragment_shaders_;
   std::vector<GLuint> vertex_shaders_;
@@ -252,19 +260,18 @@ class OpenGLContext {
   GLuint pbo_id_;
   std::vector<bool> buffers_bound_;
   GLint mvp_location_;
-  GLuint vao_;
-  GLuint vbo_;
-  GLuint ebo_;
-  GLuint uvbo_;
+  std::vector<GLuint> vaos_;
+  std::vector<GLuint> vbos_;
+  std::vector<GLuint> ebos_;
+  std::vector<GLuint> uvbos_;
+  std::vector<int> num_triangles_;
   GLFWwindow* window_;
   int width_;
   int height_;
   std::unordered_map<std::string, GLuint> textures_;
   std::unordered_map<std::string, int> textures_opengl_;
   Eigen::Matrix4f projection_;
-  int num_triangles_;
   bool is_initialized_;
-  bool has_mesh_;
   bool window_showing_;
   static float framebuffer_size_to_screen_coords_;
   Eigen::Vector2d mouse_position_;
@@ -285,7 +292,7 @@ class OpenGLContext {
   static void MouseButtonCallback(GLFWwindow* window, int button, int action,
                                   int mods);
   static void MousePosCallback(GLFWwindow* window, double x, double y);
-  //void (*Keyboard_)(int, int, int);
+  // void (*Keyboard_)(int, int, int);
   std::function<void(int, int, int)> Keyboard_;
   void (*MouseMove_)(double, double);
   void (*MouseButton_)(int, int, int);

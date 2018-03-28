@@ -26,6 +26,7 @@ public:
 private:
   std::shared_ptr<VRContext> renderer_;
   std::vector<Mesh> meshes_;
+  std::vector<int> mesh_ids_;
   int shader_id_;
   bool is_initialized_;
   std::vector<Eigen::Vector3f> frame_lookats_;

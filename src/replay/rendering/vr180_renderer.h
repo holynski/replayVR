@@ -26,6 +26,7 @@ class VR180Renderer {
  private:
   std::shared_ptr<VRContext> renderer_;
   std::vector<Mesh> meshes_;
+  std::vector<int> mesh_ids_;
   int shader_id_;
   bool is_initialized_;
   cv::Mat3b image_;

@@ -89,13 +89,11 @@ Eigen::Matrix4f GetOpenGLMatrix(const theia::Camera& camera) {
   return retval;
 }
 
-bool OpenGLContext::HasMesh() const { return has_mesh_; }
-
 OpenGLContext::OpenGLContext()
-    : pbo_id_(-1),
+    : fullscreen_triangle_mesh_(-1),
+      pbo_id_(-1),
       mvp_location_(-1),
       is_initialized_(false),
-      has_mesh_(false),
       window_showing_(false) {
   // CHECK(Initialize()) << "Initializing OpenGL failed;";
 }
@@ -114,9 +112,11 @@ void OpenGLContext::DestroyContext() {
     glDeleteShader(fragment_shaders_[i]);
     glDeleteShader(vertex_shaders_[i]);
   }
-  glDeleteBuffers(1, &ebo_);
-  glDeleteBuffers(1, &vbo_);
-  glDeleteVertexArrays(1, &vao_);
+  for (int i = 0; i < ebos_.size(); i++) {
+    glDeleteBuffers(1, &ebos_[current_mesh_]);
+    glDeleteBuffers(1, &vbos_[current_mesh_]);
+    glDeleteVertexArrays(1, &vaos_[current_mesh_]);
+  }
   glfwTerminate();
 }
 
@@ -242,11 +242,11 @@ bool OpenGLContext::CompileFullScreenShader(const std::string& fragment,
 bool OpenGLContext::IsInitialized() const { return is_initialized_; }
 
 bool OpenGLContext::Initialize() {
-  has_mesh_ = false;
   Keyboard_ = NULL;
   MouseButton_ = NULL;
   MouseMove_ = NULL;
   current_program_ = -1;
+  current_mesh_ = -1;
   if (is_initialized_) {
     return true;
   }
@@ -366,34 +366,46 @@ Eigen::Vector2d OpenGLContext::GetMousePosition() const {
 }
 
 bool OpenGLContext::BindFullscreenTriangle() {
-  Mesh single_triangle_mesh;
-  single_triangle_mesh.AddVertex(Eigen::Vector3f(-1, -1, 0));
-  single_triangle_mesh.AddVertex(Eigen::Vector3f(3, -1, 0));
-  single_triangle_mesh.AddVertex(Eigen::Vector3f(-1, 3, 0));
-  single_triangle_mesh.AddTriangleFace(0, 1, 2);
-  return UploadMesh(single_triangle_mesh);
+  if (fullscreen_triangle_mesh_ < 0) {
+    Mesh single_triangle_mesh;
+    single_triangle_mesh.AddVertex(Eigen::Vector3f(-1, -1, 0));
+    single_triangle_mesh.AddVertex(Eigen::Vector3f(3, -1, 0));
+    single_triangle_mesh.AddVertex(Eigen::Vector3f(-1, 3, 0));
+    single_triangle_mesh.AddTriangleFace(0, 1, 2);
+    fullscreen_triangle_mesh_ = UploadMesh(single_triangle_mesh);
+    if (fullscreen_triangle_mesh_ < 0) {
+      return false;
+    }
+  }
+  return BindMesh(fullscreen_triangle_mesh_);
 }
 
-bool OpenGLContext::UploadMesh(const Mesh& mesh) {
+int OpenGLContext::UploadMesh(const Mesh& mesh) {
   glfwMakeContextCurrent(window_);
   if (mesh.NumVertices() <= 0) {
-    has_mesh_ = true;
-    return true;
+    return -1;
   }
 
   const GLint vert_location =
       glGetAttribLocation(programs_[current_program_], "vert");
-  if (!has_mesh_) {
-    glGenVertexArrays(1, &vao_);
-    glBindVertexArray(vao_);
-    glEnableVertexAttribArray(vert_location);
+  GLuint vao, vbo, ebo, uvbo;
+  glGenVertexArrays(1, &vao);
+  glBindVertexArray(vao);
+  glEnableVertexAttribArray(vert_location);
 
-    glGenBuffers(1, &vbo_);
-    glGenBuffers(1, &ebo_);
-    glGenBuffers(1, &uvbo_);
-  }
-  glBindVertexArray(vao_);
-  glBindBuffer(GL_ARRAY_BUFFER, vbo_);
+  glGenBuffers(1, &vbo);
+  glGenBuffers(1, &ebo);
+  glGenBuffers(1, &uvbo);
+
+  vaos_.push_back(vao);
+  vbos_.push_back(vbo);
+  ebos_.push_back(ebo);
+  uvbos_.push_back(uvbo);
+
+  int mesh_id = vaos_.size() - 1;
+
+  glBindVertexArray(vao);
+  glBindBuffer(GL_ARRAY_BUFFER, vbo);
   glBufferData(GL_ARRAY_BUFFER, mesh.NumVertices() * 3 * 4,
                (void*)mesh.vertex_positions(), GL_STATIC_DRAW);
 
@@ -402,22 +414,35 @@ bool OpenGLContext::UploadMesh(const Mesh& mesh) {
   if (mesh.HasUVs()) {
     const GLint uv_location =
         glGetAttribLocation(programs_[current_program_], "uv");
-    glBindBuffer(GL_ARRAY_BUFFER, uvbo_);
+    glBindBuffer(GL_ARRAY_BUFFER, uvbo);
     const float* uvs = mesh.uvs();
     glBufferData(GL_ARRAY_BUFFER, mesh.NumVertices() * 4 * 2, (void*)uvs,
                  GL_STATIC_DRAW);
     glEnableVertexAttribArray(uv_location);
-    glBindBuffer(GL_ARRAY_BUFFER, uvbo_);
+    glBindBuffer(GL_ARRAY_BUFFER, uvbo);
     glVertexAttribPointer(uv_location, 2, GL_FLOAT, GL_FALSE, 0, 0);
   }
 
-  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo_);
+  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
   glBufferData(GL_ELEMENT_ARRAY_BUFFER, mesh.NumTriangleFaces() * 3 * 4,
                (void*)mesh.triangles().data(), GL_STATIC_DRAW);
 
-  num_triangles_ = mesh.triangles().size();
+  num_triangles_.push_back(mesh.triangles().size());
   CheckForOpenGLErrors();
-  has_mesh_ = true;
+  return mesh_id;
+}
+
+bool OpenGLContext::UpdateMesh(const Mesh& mesh, const int mesh_id) {
+  LOG(FATAL) << "Not implemented";
+  return false;
+}
+
+bool OpenGLContext::BindMesh(const int mesh_id) {
+  CHECK(is_initialized_) << "Call initialize first.";
+  if (mesh_id < 0 || mesh_id >= vaos_.size()) {
+    return false;
+  }
+  current_mesh_ = mesh_id;
   return true;
 }
 
@@ -853,14 +878,16 @@ void OpenGLContext::Render() {
   glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
   CHECK(current_program_ >= 0) << "Did not call UseShader!";
+  CHECK(current_mesh_ >= 0) << "Did not call BindMesh!";
   glUseProgram(programs_[current_program_]);
   if (!using_projection_matrix_[current_program_]) {
     UploadShaderUniform(1.0f, "negative");
   }
-  glBindVertexArray(vao_);
-  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo_);
-  glBindBuffer(GL_ARRAY_BUFFER, vbo_);
-  glDrawElements(GL_TRIANGLES, num_triangles_ * 3, GL_UNSIGNED_INT, 0);
+  glBindVertexArray(vaos_[current_mesh_]);
+  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebos_[current_mesh_]);
+  glBindBuffer(GL_ARRAY_BUFFER, vbos_[current_mesh_]);
+  glDrawElements(GL_TRIANGLES, num_triangles_[current_mesh_] * 3,
+                 GL_UNSIGNED_INT, 0);
   glfwSwapBuffers(window_);
   glfwPollEvents();
   glViewport(0, 0, width_, height_);
@@ -933,6 +960,7 @@ void OpenGLContext::RenderToBufferInternal(void* buffer, const int& format,
     CHECK(CreateRenderBuffer(datatype, format));
   }
   CHECK(current_program_ >= 0) << "Did not call UseShader!";
+  CHECK(current_mesh_ >= 0) << "Did not call BindMesh!";
   glBindFramebuffer(GL_FRAMEBUFFER, output_buffers_[current_program_]);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
   if (using_projection_matrix_[current_program_]) {
@@ -944,10 +972,11 @@ void OpenGLContext::RenderToBufferInternal(void* buffer, const int& format,
     UploadShaderUniform(-1.0f, "negative");
   }
   glUseProgram(programs_[current_program_]);
-  glBindVertexArray(vao_);
-  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo_);
-  glBindBuffer(GL_ARRAY_BUFFER, vbo_);
-  glDrawElements(GL_TRIANGLES, num_triangles_ * 3, GL_UNSIGNED_INT, 0);
+  glBindVertexArray(vaos_[current_mesh_]);
+  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebos_[current_mesh_]);
+  glBindBuffer(GL_ARRAY_BUFFER, vbos_[current_mesh_]);
+  glDrawElements(GL_TRIANGLES, num_triangles_[current_mesh_] * 3,
+                 GL_UNSIGNED_INT, 0);
   glReadBuffer(GL_COLOR_ATTACHMENT0);
   glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo_id_);
   glReadPixels(0, 0, width_, height_, format, datatype, 0);
