@@ -36,6 +36,15 @@ class VR180VideoReader : public VideoReader {
   // visualization purposes
   Mesh GetTrajectoryMesh();
 
+  // Advanced usage, to avoid wasting time on video decode when we only want the metadata.
+  //
+  // Fetches the next oriented frame pair, but does not decode the video frame.
+  bool FetchOrientedFrame();
+  // Decodes and returns the frame.
+  cv::Mat3b GetFetchedFrame() const;
+  // Returns the orientation for the frame.
+  Eigen::Matrix3f GetFetchedOrientation() const;
+
  private:
   bool ParseAllMetadata();
   Eigen::AngleAxisf GetAngleAxis(const double& time_in_seconds);
@@ -43,6 +52,8 @@ class VR180VideoReader : public VideoReader {
   // A mapping from time in seconds to the angular direction of the camera at
   // that time.
   std::map<double, Eigen::AngleAxisf> angular_metadata_;
+  VideoPacket* encoded_frame_;
+  Eigen::Matrix3f fetched_orientation_;
 };
 
 }  // namespace replay

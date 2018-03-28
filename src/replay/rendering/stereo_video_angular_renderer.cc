@@ -54,6 +54,7 @@ namespace {}  // namespace
 
 bool StereoVideoAngularRenderer::Initialize(
     const std::string &spherical_video_filename) {
+  renderer_->HideWindow();
   if (!renderer_->CompileAndLinkShaders(vertex_source, fragment_source,
                                         &shader_id_)) {
     LOG(ERROR) << "Couldn't compile shader!";
@@ -85,29 +86,32 @@ bool StereoVideoAngularRenderer::Initialize(
   int index = 0;
 
   // TODO(holynski): Load metadata without decoding frames
-  while (reader_.GetOrientedFrame(image, rotation)) {
+  while (reader_.FetchOrientedFrame()) {
+    rotation = reader_.GetFetchedOrientation();
     total_frames++;
 
     if (frame_lookats_.size() > 0 &&
         frame_lookats_[frame_lookats_.size() - 1].dot(-rotation.row(2)) >
             cos(angular_resolution_ * M_PI / 180.0)) {
+      LOG(INFO) << "Skipped frame " << total_frames;
       continue;
     }
-    LOG(INFO) << "Added frame!!!!!!!!!!!! " << total_frames;
+    LOG(INFO) << "Added frame " << total_frames;
     frame_rotations_.emplace_back(rotation);
     frame_lookats_.push_back(-frame_rotations_[index].row(2));
     frame_upvecs_.push_back(frame_rotations_[index].row(1));
-    frames_[index] = (image);
+    frames_[index] = reader_.GetFetchedFrame();
 
     index++;
   }
   current_frame_ = frame_lookats_.size() / 2;
   LOG(INFO) << "Loaded " << index << "/" << total_frames << " frames.";
   LOG(INFO) << "Done. Found " << index << " frames.";
+  renderer_->ShowWindow();
 
   return true;
 }
-int counter = 0;
+
 void StereoVideoAngularRenderer::Render() {
   CHECK(is_initialized_) << "Initialize renderer first.";
   CHECK(renderer_->UseShader(shader_id_));
@@ -119,7 +123,7 @@ void StereoVideoAngularRenderer::Render() {
   double best_score = -1;
   Eigen::Vector3f lookat = -hmd_rotation.col(2);
   for (int i = 0; i < (1.0f / angular_resolution_) * 45; i++) {
-    if (current_frame_ - i < frame_lookats_.size()) {
+    if (current_frame_ - i >= 0) {
       const double score = lookat.dot(frame_lookats_[current_frame_ - i]);
       if (score > best_score) {
         best_score = score;
@@ -133,9 +137,9 @@ void StereoVideoAngularRenderer::Render() {
         best_frame = current_frame_ + i;
       }
     }
-    if (best_score > cos(angular_resolution_ * 3 * M_PI / 180.0)) {
-      break;
-    }
+    //if (best_score > cos(angular_resolution_ * 3 * M_PI / 180.0)) {
+      //break;
+    //}
   }
   current_frame_ = best_frame;
 

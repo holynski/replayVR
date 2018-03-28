@@ -34,7 +34,7 @@ Eigen::Matrix3f AngleAxisToRotation(const Eigen::AngleAxisf &angle_axis) {
 
 bool VR180VideoReader::GetOrientedFrame(cv::Mat3b &frame,
                                         Eigen::Matrix3f &rotation) {
-  CHECK(file_open_) << "Call Open() first!";
+  DCHECK(file_open_) << "Call Open() first!";
 
   Packet *packet;
   while ((packet = ReadPacket()) && packet->stream_id != video_stream_idx_) {
@@ -54,6 +54,35 @@ bool VR180VideoReader::GetOrientedFrame(cv::Mat3b &frame,
   rotation = AngleAxisToRotation(angle_axis);
 
   return true;
+}
+
+bool VR180VideoReader::FetchOrientedFrame() {
+  DCHECK(file_open_) << "Call Open() first!";
+
+  Packet *packet;
+  while ((packet = ReadPacket()) && packet->stream_id != video_stream_idx_) {
+    if (packet->stream_id == -1) {
+      return false;
+    }
+  }
+
+  if (!packet) {
+    return false;
+  }
+
+  encoded_frame_ = static_cast<VideoPacket *>(packet);
+  const Eigen::AngleAxisf &angle_axis =
+      GetAngleAxis(encoded_frame_->time_in_seconds);
+  fetched_orientation_ = AngleAxisToRotation(angle_axis);
+  return true;
+}
+
+cv::Mat3b VR180VideoReader::GetFetchedFrame() const {
+  return AVFrameToMat(encoded_frame_->frame, false);
+}
+
+Eigen::Matrix3f VR180VideoReader::GetFetchedOrientation() const {
+  return fetched_orientation_;
 }
 
 std::vector<Mesh> VR180VideoReader::GetMeshes() {
