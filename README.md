@@ -28,8 +28,11 @@ Since this library depends on features of FFMPEG which are currently not on the 
 Then, to compile:
 
 `mkdir build`
+
 `cd build`
+
 `cmake ..`
+
 `make -j4`
 
 # FAQ: 
