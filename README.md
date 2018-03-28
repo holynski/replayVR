@@ -33,7 +33,7 @@ Then, to compile:
 
 `cmake ..`
 
-`make -j4`
+`make -j`
 
 # FAQ: 
 
