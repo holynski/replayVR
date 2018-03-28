@@ -1,10 +1,10 @@
 =================================================
 
-                  Replay VR
+#Replay VR
 
 =================================================
 
-# Dependencies
+## Dependencies
 
 To run, first you must install the following packages. 
 
@@ -23,7 +23,7 @@ Since this library depends on features of FFMPEG which are currently not on the 
 2. Replace the files `FFmpeg/libavformat/mov.c`, `FFmpeg/libavutil/spherical.h`, and `FFmpeg/libavutil/spherical.c` with the ones provided in the ffmpeg_mods folder.
 3. If compiling on Windows, skip below to the FAQ for compilation instructions, otherwise compile and install with `mkdir build && cd build && cmake .. && make -j && make install`
 
-# Compilation 
+## Compilation 
 
 Then, to compile:
 
@@ -35,9 +35,9 @@ Then, to compile:
 
 `make -j`
 
-# FAQ: 
+## FAQ: 
 
-## How to compile ffmpeg + x264 using Visual Studio 2015+
+### How to compile ffmpeg + x264 using Visual Studio 2015+
 
 1. Download "MSYS2 x86_64" from "http://msys2.github.io" and install into "C:\workspace\windows\msys64" 
 2. Run: `pacman -S make gcc diffutils mingw-w64-{i686,x86_64}-pkg-config mingw-w64-i686-nasm mingw-w64-i686-yasm`
