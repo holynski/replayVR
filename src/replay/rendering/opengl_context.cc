@@ -69,8 +69,8 @@ std::unordered_map<GLFWwindow*, OpenGLContext*>
     OpenGLContext::window_to_renderer_;
 
 Eigen::Matrix4f GetOpenGLMatrix(const theia::Camera& camera) {
-  static const float far = 100.0f;
-  static const float near = 0.01f;
+  static const float far_clip = 100.0f;
+  static const float near_clip = 0.01f;
   Eigen::Matrix4d extrinsics = Eigen::Matrix4d::Zero();
   Eigen::Matrix3d rotation = camera.GetOrientationAsRotationMatrix();
   rotation.row(0) = -rotation.row(0);
@@ -82,8 +82,8 @@ Eigen::Matrix4f GetOpenGLMatrix(const theia::Camera& camera) {
   Eigen::Matrix4d projection = Eigen::Matrix4d::Zero();
   projection(0, 0) = -camera.FocalLength() / camera.PrincipalPointX();
   projection(1, 1) = -camera.FocalLength() / camera.PrincipalPointY();
-  projection(2, 2) = -(far + near) / (far - near);
-  projection(2, 3) = -(2 * far * near) / (far - near);
+  projection(2, 2) = -(far_clip + near_clip) / (far_clip - near_clip);
+  projection(2, 3) = -(2 * far_clip * near_clip) / (far_clip - near_clip);
   projection(3, 2) = -1;
   Eigen::Matrix4f retval = (projection * extrinsics).cast<float>();
   return retval;
@@ -801,8 +801,8 @@ void OpenGLContext::SetViewportSize(const int& width, const int& height,
   }
 }
 
-bool OpenGLContext::SetViewpoint(const theia::Camera& camera, const float& near,
-                                 const float& far) {
+bool OpenGLContext::SetViewpoint(const theia::Camera& camera, const float& near_clip,
+                                 const float& far_clip) {
   glfwMakeContextCurrent(window_);
   CHECK(using_projection_matrix_[current_program_])
       << "Cannot call SetViewpoint on a fullscreen shader!";
@@ -817,8 +817,8 @@ bool OpenGLContext::SetViewpoint(const theia::Camera& camera, const float& near,
   Eigen::Matrix4d projection = Eigen::Matrix4d::Zero();
   projection(0, 0) = -camera.FocalLength() / camera.PrincipalPointX();
   projection(1, 1) = -camera.FocalLength() / camera.PrincipalPointY();
-  projection(2, 2) = -(far + near) / (far - near);
-  projection(2, 3) = -(2 * far * near) / (far - near);
+  projection(2, 2) = -(far_clip + near_clip) / (far_clip - near_clip);
+  projection(2, 3) = -(2 * far_clip * near_clip) / (far_clip - near_clip);
   projection(3, 2) = -1;
   projection_ = (projection * extrinsics).cast<float>();
 

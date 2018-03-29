@@ -6,9 +6,9 @@
 #elif defined(__linux__) || defined(__unix__) || defined(__posix__)
 #include <GL/glew.h>
 #else
-//#include <windows.h>
-#include <GL/gl.h>
+#include <windows.h>
 #include <GL/glew.h>
+#include <GL/gl.h>
 
 #endif  // __APPLE__
 #include <GLFW/glfw3.h>
@@ -155,8 +155,8 @@ class OpenGLContext {
   // constraints, the window remains at its current size.
   // Returns true if the viewpoint was set successfully, false otherwise.
   bool SetViewpoint(const theia::Camera& camera);
-  bool SetViewpoint(const theia::Camera& camera, const float& near,
-                    const float& far);
+  bool SetViewpoint(const theia::Camera& camera, const float& near_clip,
+                    const float& far_clip);
 
   // If not using the above SetViewpoint functions, you may instead use these
   // two functions, setting the MVP matrix manually, and adjusting the viewport

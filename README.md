@@ -17,11 +17,13 @@ The first few can be installed quite easily using Homebrew on OSX, your package 
 
 The last one is a bit different:
 
-FFMPEG (libavcodec/libavutil/libavformat)
+* FFMPEG (libavcodec/libavutil/libavformat)
 Since this library depends on features of FFMPEG which are currently not on the main branch, you must first clone the FFMPEG repository, replace a couple files, and then install on your system using CMake. In order to install, you must:
 1. `git clone https://github.com/FFmpeg/FFmpeg`
 2. Replace the files `FFmpeg/libavformat/mov.c`, `FFmpeg/libavutil/spherical.h`, and `FFmpeg/libavutil/spherical.c` with the ones provided in the ffmpeg_mods folder.
-3. If compiling on Windows, skip below to the FAQ for compilation instructions, otherwise compile and install with `mkdir build && cd build && cmake .. && make -j && make install`
+3. If compiling on Windows, skip below to the FAQ for compilation instructions, otherwise continue to step 4.
+4. Install x264 from http://git.videolan.org/git/x264.git (or binaries found at https://www.videolan.org/developers/x264.html)
+6. `./configure --enable-shared --disable-static --enable-libx264 && make && make install`
 
 ## Compilation 
 
