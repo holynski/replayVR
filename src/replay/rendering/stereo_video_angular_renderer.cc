@@ -1,5 +1,6 @@
 #include "replay/rendering/stereo_video_angular_renderer.h"
 #include <openvr.h>
+#include <chrono>
 #include <Eigen/Dense>
 #include <Eigen/Geometry>
 #include "replay/depth_map/depth_map.h"
@@ -40,7 +41,7 @@ static const std::string fragment_source =
     "uniform sampler2D image;"
     "void main()\n"
     "{\n"
-    "    color = texture(image, frag_uv).rgb;"
+	"    color = texture(image, frag_uv).rgb;"
     "}\n";
 }  // namespace
 
@@ -101,7 +102,6 @@ bool StereoVideoAngularRenderer::Initialize(
     frame_lookats_.push_back(-frame_rotations_[index].row(2));
     frame_upvecs_.push_back(frame_rotations_[index].row(1));
     frames_[index] = reader_.GetFetchedFrame();
-
     index++;
   }
   current_frame_ = frame_lookats_.size() / 2;
@@ -112,11 +112,19 @@ bool StereoVideoAngularRenderer::Initialize(
   mesh_ids_.push_back(renderer_->UploadMesh(meshes_[1]));
   CHECK_GE(mesh_ids_[0],0);
   CHECK_GE(mesh_ids_[1],0);
-
+  renderer_->UploadTexture(frames_[0], "image");
   return true;
 }
-
+std::chrono::time_point<std::chrono::system_clock> current_time;
+std::chrono::time_point<std::chrono::system_clock> last_time;
 void StereoVideoAngularRenderer::Render() {
+	 current_time =
+		std::chrono::system_clock::now();
+	time_t ms_difference = std::chrono::duration_cast<std::chrono::milliseconds>(
+		current_time - last_time)
+		.count();
+	last_time = current_time;
+	LOG(INFO) << "Rendered in " << ms_difference << " ms.";
   CHECK(is_initialized_) << "Initialize renderer first.";
   CHECK(renderer_->UseShader(shader_id_));
   renderer_->UpdatePose();
@@ -148,7 +156,7 @@ void StereoVideoAngularRenderer::Render() {
   current_frame_ = best_frame;
 
   CHECK_GE(best_frame, 0);
-  renderer_->UploadTexture(frames_[best_frame], "image");
+  renderer_->UpdateTexture(frames_[best_frame], "image");
   Eigen::Matrix4f mvp = Eigen::Matrix4f::Identity();
 
   mvp.block(0, 0, 3, 3) *= hmd_rotation * frame_rotations_[best_frame];

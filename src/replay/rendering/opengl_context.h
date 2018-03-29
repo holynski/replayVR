@@ -189,6 +189,7 @@ class OpenGLContext {
   void UploadShaderUniform(const std::vector<Eigen::Vector3f>& val,
                            const std::string& name);
   bool UploadTexture(const cv::Mat& image, const std::string& name);
+  bool UpdateTexture(const cv::Mat& image, const std::string& name);
   bool UploadTexture(const DepthMap& depth, const std::string& name);
   GLuint GetTextureId(const std::string& name) const;
 
@@ -282,6 +283,10 @@ class OpenGLContext {
                              const int& format, const int& datatype,
                              const int& internal_format,
                              const std::string& name);
+  bool UpdateTextureInternal(void* data, const int& width, const int& height,
+	  const int& format, const int& datatype,
+	  const int& internal_format,
+	  const std::string& name);
   bool UploadTextureToArrayInternal(const void* data, const std::string& name,
                                     const int& width, const int& height,
                                     const int& format, const int& index);

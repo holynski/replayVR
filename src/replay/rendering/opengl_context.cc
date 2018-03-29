@@ -672,6 +672,48 @@ bool OpenGLContext::UploadTexture(const cv::Mat& image,
   return false;
 }
 
+bool OpenGLContext::UpdateTextureInternal(void* data, const int& width,
+	const int& height, const int& format,
+	const int& datatype,
+	const int& internal_format,
+	const std::string& name) {
+	glfwMakeContextCurrent(window_);
+	DCHECK(current_program_ >= 0) << "Did not call UseShader!";
+	glUseProgram(programs_[current_program_]);
+	if (textures_.count(name) < 1) {
+		return false;
+	}
+	glActiveTexture(GL_TEXTURE4 + textures_opengl_[name]);
+	GLuint tex = textures_[name];
+	glBindTexture(GL_TEXTURE_2D, tex);
+	glTexSubImage2D(GL_TEXTURE_2D, 0, internal_format, width, height, 0, format,
+		datatype, data);
+	CheckForOpenGLErrors();
+	return true;
+}
+
+bool OpenGLContext::UpdateTexture(const cv::Mat& image,
+	const std::string& name) {
+	cv::Mat dst;
+	cv::flip(image, dst, 0);
+	if (dst.channels() == 3)
+
+		return UpdateTextureInternal(reinterpret_cast<void*>(dst.data), dst.cols,
+			dst.rows, GL_RGB, GL_UNSIGNED_BYTE, GL_RGB8,
+			name);
+	if (dst.channels() == 4)
+		return UpdateTextureInternal(reinterpret_cast<void*>(dst.data), dst.cols,
+			dst.rows, GL_RGBA, GL_UNSIGNED_BYTE, GL_RGBA8,
+			name);
+	if (dst.channels() == 1)
+		return UpdateTextureInternal(reinterpret_cast<void*>(dst.data), dst.cols,
+			dst.rows, GL_RED, GL_UNSIGNED_BYTE, GL_R8,
+			name);
+	LOG(FATAL) << "Number of channels " << dst.channels()
+		<< " not implemented in UploadTexture.";
+	return false;
+}
+
 bool OpenGLContext::UploadTexture(const DepthMap& depth,
                                   const std::string& name) {
   return UploadTextureInternal((void*)depth.Depth().data, depth.Cols(),
@@ -687,12 +729,6 @@ bool OpenGLContext::AllocateTextureArray(const std::string& name,
   CHECK(current_program_ >= 0) << "Did not call UseShader!";
   glUseProgram(programs_[current_program_]);
 
-  int dim;
-  glGetIntegerv(GL_MAX_3D_TEXTURE_SIZE, &dim);
-
-  LOG(INFO) << "Max 3d texture size: " << dim;
-  glGetIntegerv(GL_MAX_ARRAY_TEXTURE_LAYERS, &dim);
-  LOG(INFO) << "Max texture layers : " << dim;
   if (textures_.count(name) < 1) {
     GLuint tex;
     glGenTextures(1, &tex);

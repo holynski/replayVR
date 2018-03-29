@@ -36,7 +36,7 @@ private:
   cv::Mat3b image_;
   VR180VideoReader reader_;
   int current_frame_ = -1;
-  float angular_resolution_ = 0.25; // in degrees
+  float angular_resolution_ = 0.2; // in degrees
 };
 } // namespace replay
 

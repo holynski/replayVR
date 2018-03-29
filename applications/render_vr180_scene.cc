@@ -8,6 +8,7 @@
 #include <stdlib.h>
 
 DEFINE_string(video_file, "", "Spherical video file to parse");
+DEFINE_bool(companion, false, "Show companion window");
 
 int main(int argc, char **argv) {
   google::InitGoogleLogging(argv[0]);
@@ -22,7 +23,7 @@ int main(int argc, char **argv) {
 
   replay::StereoVideoAngularRenderer stereo_renderer(renderer);
   CHECK(stereo_renderer.Initialize(FLAGS_video_file));
-
+  renderer->ToggleCompanionWindow(FLAGS_companion);
   while (true) {
     stereo_renderer.Render();
   }
