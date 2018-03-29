@@ -149,9 +149,6 @@ void StereoVideoAngularRenderer::Render() {
         best_frame = current_frame_ + i;
       }
     }
-    //if (best_score > cos(angular_resolution_ * 3 * M_PI / 180.0)) {
-      //break;
-    //}
   }
   current_frame_ = best_frame;
 
