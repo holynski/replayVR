@@ -79,7 +79,6 @@ bool VRContext::InitializeHMD() {
 
   // Find and store the index of the HMD object among the tracked objects, so we
   // don't have to search for it each time we want to render.
-  int hmd_index_ = -1;
   for (int device_id = 0; device_id < vr::k_unMaxTrackedDeviceCount;
        ++device_id) {
     if (hmd_->GetTrackedDeviceClass(device_id) == vr::TrackedDeviceClass_HMD) {
@@ -91,6 +90,7 @@ bool VRContext::InitializeHMD() {
     return false;
   }
 
+  LOG(INFO) << "HMD initialized!";
   return true;
 }
 

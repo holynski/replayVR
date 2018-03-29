@@ -76,9 +76,9 @@ bool VR180Renderer::Initialize(const std::string& spherical_video_filename) {
   CHECK(renderer_->UseShader(shader_id_));
 
   mesh_ids_.push_back(renderer_->UploadMesh(meshes_[0]));
-  //mesh_ids_.push_back(renderer_->UploadMesh(meshes_[1]));
+  mesh_ids_.push_back(renderer_->UploadMesh(meshes_[1]));
   CHECK_GE(mesh_ids_[0], 0);
-  //CHECK_GE(mesh_ids_[1], 0);
+  CHECK_GE(mesh_ids_[1], 0);
 
   return true;
 }
@@ -120,7 +120,7 @@ void VR180Renderer::Render() {
   renderer_->SetProjectionMatrix(left_mvp);
   renderer_->UploadShaderUniform(0, "right");
   renderer_->RenderEye(0);
-  CHECK(renderer_->BindMesh(mesh_ids_[0]));
+  CHECK(renderer_->BindMesh(mesh_ids_[1]));
   renderer_->SetProjectionMatrix(right_mvp);
   renderer_->UploadShaderUniform(1, "right");
   renderer_->RenderEye(1);
