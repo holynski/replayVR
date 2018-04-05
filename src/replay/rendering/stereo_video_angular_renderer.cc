@@ -1,12 +1,13 @@
 #include "replay/rendering/stereo_video_angular_renderer.h"
 #include <openvr.h>
-#include <chrono>
 #include <Eigen/Dense>
 #include <Eigen/Geometry>
+#include <chrono>
 #include "replay/depth_map/depth_map.h"
 #include "replay/mesh/mesh.h"
 #include "replay/rendering/vr_context.h"
 #include "replay/third_party/theia/sfm/types.h"
+#include "replay/util/timer.h"
 #include "replay/util/types.h"
 #include "replay/vr_180/vr_180_video_reader.h"
 
@@ -41,7 +42,7 @@ static const std::string fragment_source =
     "uniform sampler2D image;"
     "void main()\n"
     "{\n"
-	"    color = texture(image, frag_uv).rgb;"
+    "    color = texture(image, frag_uv).rgb;"
     "}\n";
 }  // namespace
 
@@ -110,23 +111,18 @@ bool StereoVideoAngularRenderer::Initialize(
   renderer_->ShowWindow();
   mesh_ids_.push_back(renderer_->UploadMesh(meshes_[0]));
   mesh_ids_.push_back(renderer_->UploadMesh(meshes_[1]));
-  CHECK_GE(mesh_ids_[0],0);
-  CHECK_GE(mesh_ids_[1],0);
+  CHECK_GE(mesh_ids_[0], 0);
+  CHECK_GE(mesh_ids_[1], 0);
   renderer_->UploadTexture(frames_[0], "image");
   return true;
 }
-std::chrono::time_point<std::chrono::system_clock> current_time;
-std::chrono::time_point<std::chrono::system_clock> last_time;
+
 void StereoVideoAngularRenderer::Render() {
-	 current_time =
-		std::chrono::system_clock::now();
-	time_t ms_difference = std::chrono::duration_cast<std::chrono::milliseconds>(
-		current_time - last_time)
-		.count();
-	last_time = current_time;
-	LOG(INFO) << "Rendered in " << ms_difference << " ms.";
   CHECK(is_initialized_) << "Initialize renderer first.";
   CHECK(renderer_->UseShader(shader_id_));
+
+  SimpleTimer timer;
+
   renderer_->UpdatePose();
   Eigen::Matrix3f hmd_rotation =
       renderer_->GetHMDPose().block(0, 0, 3, 3).transpose();
@@ -150,10 +146,13 @@ void StereoVideoAngularRenderer::Render() {
       }
     }
   }
+
   current_frame_ = best_frame;
 
   CHECK_GE(best_frame, 0);
+
   renderer_->UpdateTexture(frames_[best_frame], "image");
+
   Eigen::Matrix4f mvp = Eigen::Matrix4f::Identity();
 
   mvp.block(0, 0, 3, 3) *= hmd_rotation * frame_rotations_[best_frame];
@@ -165,10 +164,12 @@ void StereoVideoAngularRenderer::Render() {
   renderer_->SetProjectionMatrix(mvp_left);
   renderer_->UploadShaderUniform(0, "right");
   renderer_->RenderEye(0);
-  CHECK(renderer_->BindMesh(mesh_ids_[1])); 
+  CHECK(renderer_->BindMesh(mesh_ids_[1]));
   renderer_->SetProjectionMatrix(mvp_right);
   renderer_->UploadShaderUniform(1, "right");
   renderer_->RenderEye(1);
+
+  LOG(INFO) << "Rendered in " << timer.ElapsedTime() << "ms.";
 }
 
 }  // namespace replay

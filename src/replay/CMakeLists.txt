@@ -25,6 +25,7 @@ set(REPLAY_SRC
   rendering/vr180_renderer.cc
   rendering/vr_context.cc
   util/lru_cache.cc
+  util/timer.cc
   vr_180/mesh_projection_parser.cc
   vr_180/vr_180_video_reader.cc
   )

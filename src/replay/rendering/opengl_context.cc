@@ -673,45 +673,45 @@ bool OpenGLContext::UploadTexture(const cv::Mat& image,
 }
 
 bool OpenGLContext::UpdateTextureInternal(void* data, const int& width,
-	const int& height, const int& format,
-	const int& datatype,
-	const int& internal_format,
-	const std::string& name) {
-	glfwMakeContextCurrent(window_);
-	DCHECK(current_program_ >= 0) << "Did not call UseShader!";
-	glUseProgram(programs_[current_program_]);
-	if (textures_.count(name) < 1) {
-		return false;
-	}
-	glActiveTexture(GL_TEXTURE4 + textures_opengl_[name]);
-	GLuint tex = textures_[name];
-	glBindTexture(GL_TEXTURE_2D, tex);
-	glTexSubImage2D(GL_TEXTURE_2D, 0, internal_format, width, height, 0, format,
-		datatype, data);
-	CheckForOpenGLErrors();
-	return true;
+                                          const int& height, const int& format,
+                                          const int& datatype,
+                                          const int& internal_format,
+                                          const std::string& name) {
+  glfwMakeContextCurrent(window_);
+  DCHECK(current_program_ >= 0) << "Did not call UseShader!";
+  glUseProgram(programs_[current_program_]);
+  if (textures_.count(name) < 1) {
+    return false;
+  }
+  glActiveTexture(GL_TEXTURE4 + textures_opengl_[name]);
+  GLuint tex = textures_[name];
+  glBindTexture(GL_TEXTURE_2D, tex);
+  glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, format, datatype,
+                  data);
+  CheckForOpenGLErrors();
+  return true;
 }
 
 bool OpenGLContext::UpdateTexture(const cv::Mat& image,
-	const std::string& name) {
-	cv::Mat dst;
-	cv::flip(image, dst, 0);
-	if (dst.channels() == 3)
+                                  const std::string& name) {
+  cv::Mat dst;
+  cv::flip(image, dst, 0);
+  if (dst.channels() == 3)
 
-		return UpdateTextureInternal(reinterpret_cast<void*>(dst.data), dst.cols,
-			dst.rows, GL_RGB, GL_UNSIGNED_BYTE, GL_RGB8,
-			name);
-	if (dst.channels() == 4)
-		return UpdateTextureInternal(reinterpret_cast<void*>(dst.data), dst.cols,
-			dst.rows, GL_RGBA, GL_UNSIGNED_BYTE, GL_RGBA8,
-			name);
-	if (dst.channels() == 1)
-		return UpdateTextureInternal(reinterpret_cast<void*>(dst.data), dst.cols,
-			dst.rows, GL_RED, GL_UNSIGNED_BYTE, GL_R8,
-			name);
-	LOG(FATAL) << "Number of channels " << dst.channels()
-		<< " not implemented in UploadTexture.";
-	return false;
+    return UpdateTextureInternal(reinterpret_cast<void*>(dst.data), dst.cols,
+                                 dst.rows, GL_RGB, GL_UNSIGNED_BYTE, GL_RGB8,
+                                 name);
+  if (dst.channels() == 4)
+    return UpdateTextureInternal(reinterpret_cast<void*>(dst.data), dst.cols,
+                                 dst.rows, GL_RGBA, GL_UNSIGNED_BYTE, GL_RGBA8,
+                                 name);
+  if (dst.channels() == 1)
+    return UpdateTextureInternal(reinterpret_cast<void*>(dst.data), dst.cols,
+                                 dst.rows, GL_RED, GL_UNSIGNED_BYTE, GL_R8,
+                                 name);
+  LOG(FATAL) << "Number of channels " << dst.channels()
+             << " not implemented in UploadTexture.";
+  return false;
 }
 
 bool OpenGLContext::UploadTexture(const DepthMap& depth,
@@ -837,7 +837,8 @@ void OpenGLContext::SetViewportSize(const int& width, const int& height,
   }
 }
 
-bool OpenGLContext::SetViewpoint(const theia::Camera& camera, const float& near_clip,
+bool OpenGLContext::SetViewpoint(const theia::Camera& camera,
+                                 const float& near_clip,
                                  const float& far_clip) {
   glfwMakeContextCurrent(window_);
   CHECK(using_projection_matrix_[current_program_])
@@ -1070,6 +1071,88 @@ void OpenGLContext::RenderToImage(cv::Mat* image) {
                     "provided "
                  << image->channels() << ".";
   }
+}
+
+bool OpenGLContext::RenderToTexture(const std::string& name,
+                                    const int shader_id) {
+
+  glfwMakeContextCurrent(window_);
+  CHECK(current_program_ >= 0) << "Did not call UseShader!";
+  CHECK(current_mesh_ >= 0) << "Did not call BindMesh!";
+
+  // Create a texture
+  if (textures_.count(name) < 1) {
+    GLuint tex;
+    glGenTextures(1, &tex);
+    textures_opengl_[name] = textures_.size();
+    textures_[name] = tex;
+  }
+  glActiveTexture(GL_TEXTURE4 + textures_opengl_[name]);
+  GLuint tex = textures_[name];
+  glBindTexture(GL_TEXTURE_2D, tex);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, width_, height_, 0, GL_RGB,
+               GL_UNSIGNED_BYTE, NULL);
+
+  // Create a framebuffer
+  if (texture_framebuffers_.count(name) < 1) {
+    GLuint fb = 0;
+    glGenFramebuffers(1, &fb);
+    texture_framebuffers_[name] = fb;
+  }
+  GLuint fb = texture_framebuffers_[name];
+  glBindFramebuffer(GL_FRAMEBUFFER, fb);
+
+  // Bind the texture to the framebuffer
+  glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                         tex, 0);
+  GLenum DrawBuffers[1] = {GL_COLOR_ATTACHMENT0};
+  glDrawBuffers(1, DrawBuffers);
+
+  // Check that everything went smoothly
+  if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+    LOG(ERROR) << "Framebuffer could not be created.";
+    return false;
+  }
+  CheckForOpenGLErrors();
+
+  // Bind the framebuffer.
+  glBindFramebuffer(GL_FRAMEBUFFER, fb);
+
+  // Render as usual
+  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+  if (using_projection_matrix_[current_program_]) {
+    glUniformMatrix4fv(mvp_location_, 1, GL_FALSE,
+                       (const GLfloat*)projection_.data());
+  } else {
+    UploadShaderUniform(-1.0f, "negative");
+  }
+  glUseProgram(programs_[current_program_]);
+  glBindVertexArray(vaos_[current_mesh_]);
+  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebos_[current_mesh_]);
+  glBindBuffer(GL_ARRAY_BUFFER, vbos_[current_mesh_]);
+  glDrawElements(GL_TRIANGLES, num_triangles_[current_mesh_] * 3,
+                 GL_UNSIGNED_INT, 0);
+  CheckForOpenGLErrors();
+
+  // Get the location of the texture in the other shader
+  glUseProgram(programs_[shader_id]);
+  glActiveTexture(GL_TEXTURE4 + textures_opengl_[name]);
+  glBindTexture(GL_TEXTURE_2D, tex);
+  GLint texture_location =
+      glGetUniformLocation(programs_[shader_id], name.c_str());
+  // Upload the texture
+  glUniform1i(texture_location, 4 + textures_opengl_[name]);
+
+  // Bind the regular framebuffer again
+  glBindFramebuffer(GL_FRAMEBUFFER, 0);
+  glUseProgram(programs_[current_program_]);
+
+  CheckForOpenGLErrors();
+  return true;
 }
 
 }  // namespace replay

@@ -232,14 +232,12 @@ void VRContext::RenderEye(const int eye_id) {
     SetViewportSize(hmd_viewport_width_, hmd_viewport_height_, false);
   }
 
-  RenderToImage(&image_);
-
-  const int shader = current_program_;
-
   const std::string eye_name = (eye_id == 0 ? "left" : "right");
+  CHECK(RenderToTexture(eye_name, companion_window_shader_));
+  const int shader = current_program_;
+  UseShader(companion_window_shader_);
 
   if (!emulated_hmd_) {
-    UploadTexture(image_, eye_name);
     vr::Texture_t eye_texture = {(void *)(uintptr_t)GetTextureId(eye_name),
                                  vr::TextureType_OpenGL, vr::ColorSpace_Gamma};
     vr::VRCompositor()->Submit(eye_id == 0 ? vr::Eye_Left : vr::Eye_Right,
@@ -252,13 +250,11 @@ void VRContext::RenderEye(const int eye_id) {
   }
   if (companion_window_enabled_) {
     SetViewportSize(companion_width_, companion_height_);
-    UseShader(companion_window_shader_);
-    UploadTexture(image_, eye_name);
     UploadShaderUniform(Eigen::Vector2f(companion_width_, companion_height_),
                         "window_size");
     OpenGLContext::Render();
-    UseShader(shader);
   }
+    UseShader(shader);
 }
 
 }  // namespace replay

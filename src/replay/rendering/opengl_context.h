@@ -2,12 +2,18 @@
 #define REPLAY_OPENGL_RENDERER_H_
 
 #if defined(__APPLE__)
-#define GLFW_INCLUDE_GLCOREARB
+
+#define GLFW_INCLUDE_GLCOREARB  // APPLE
+
 #elif defined(__linux__) || defined(__unix__) || defined(__posix__)
+
 #include <GL/glew.h>
-#else
+
+#else  
+
+#include <GL/glew.h>
 #include <windows.h>
-#include <GL/glew.h>
+// GLEW and windows need to be included before GL/gl.h
 #include <GL/gl.h>
 
 #endif  // __APPLE__
@@ -242,6 +248,13 @@ class OpenGLContext {
   void RenderToImage(cv::Mat* image);
   void RenderToImage(DepthMap* depth);
 
+  // Renders a frame to a texture, and binds it to a texture object in a
+  // particular shader program. If shader_id is not provided, it will attempt to
+  // bind the texture to the current program.
+  // Returns true if successfully bound to a texture sampler in a shader, and
+  // false otherwise.
+  bool RenderToTexture(const std::string& name, const int shader_id = -1);
+
   // Renders a frame to the window. Will render to the window even if it is
   // hidden, and the image will continue to be displayed until the next call to
   // Render().
@@ -270,6 +283,7 @@ class OpenGLContext {
   int width_;
   int height_;
   std::unordered_map<std::string, GLuint> textures_;
+  std::unordered_map<std::string, GLuint> texture_framebuffers_;
   std::unordered_map<std::string, int> textures_opengl_;
   Eigen::Matrix4f projection_;
   bool is_initialized_;
@@ -284,9 +298,9 @@ class OpenGLContext {
                              const int& internal_format,
                              const std::string& name);
   bool UpdateTextureInternal(void* data, const int& width, const int& height,
-	  const int& format, const int& datatype,
-	  const int& internal_format,
-	  const std::string& name);
+                             const int& format, const int& datatype,
+                             const int& internal_format,
+                             const std::string& name);
   bool UploadTextureToArrayInternal(const void* data, const std::string& name,
                                     const int& width, const int& height,
                                     const int& format, const int& index);
