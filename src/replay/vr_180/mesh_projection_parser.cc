@@ -140,7 +140,7 @@ Mesh MeshProjectionParser::ParseMesh() {
     mapping[i] = mesh.AddVertex(Eigen::Vector3f(x, y, z));
     mesh.SetVertexUV(mapping[i], u, v);
   }
-
+  bool flip_face_orientation = false;
   for (int i = 0; i < vertex_list_count; i++) {
     const uint32_t index_count = index_counts[i];
     uint32_t index = 0;
@@ -154,7 +154,7 @@ Mesh MeshProjectionParser::ParseMesh() {
           index += DecodeToSignedInt(DecodePackedInt(index_deltas[i], v, vcsb));
           indices.emplace_back(index);
           if (indices.size() == 3) {
-            if (v % 2 == 0) {
+            if ((v % 2 == 0 && !flip_face_orientation) || (v % 2 == 1 && flip_face_orientation)) {
               mesh.AddTriangleFace(mapping[indices[0]], mapping[indices[1]],
                                    mapping[indices[2]]);
             } else {
