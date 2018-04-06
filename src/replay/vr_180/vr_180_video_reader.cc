@@ -192,6 +192,7 @@ Mesh VR180VideoReader::GetTrajectoryMesh() {
     mesh.AddTriangleFace(ids[1], ids[2], ids[3]);
     mesh.AddTriangleFace(ids[3], ids[2], ids[4]);
   }
+  SeekToFrame(0);
   return mesh;
 }
 
