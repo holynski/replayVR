@@ -6,6 +6,7 @@
 #include "replay/rendering/vr_context.h"
 #include "replay/third_party/theia/sfm/camera/camera.h"
 #include "replay/vr_180/vr_180_video_reader.h"
+#include "replay/util/timer.h"
 
 #ifdef __APPLE__
 #define GLFW_INCLUDE_GLCOREARB
@@ -31,6 +32,11 @@ class VR180Renderer {
   bool is_initialized_;
   cv::Mat3b image_;
   VR180VideoReader reader_;
-  std::chrono::time_point<std::chrono::system_clock> last_frame_time;
+  Stopwatch clock_;
+  std::vector<Eigen::Vector3f> frame_lookats_;
+  std::vector<Eigen::Vector3f> frame_upvecs_;
+  std::vector<Eigen::Matrix3f> frame_rotations_;
+  std::unordered_map<int, cv::Mat3b> frames_;
+  int current_frame_;
 };
 }  // namespace replay

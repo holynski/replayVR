@@ -1,16 +1,16 @@
 #pragma once
 
+#include "libavutil/spherical.h"
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #include <CGAL/Simple_cartesian.h>
 #include <CGAL/Surface_mesh.h>
-#include "libavutil/spherical.h"
 #include <Eigen/Core>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
-#include "replay/util/types.h"
 #include "replay/third_party/theia/sfm/types.h"
+#include "replay/util/types.h"
 
 namespace replay {
 
@@ -22,26 +22,26 @@ namespace replay {
 // NOTE: One peculiarity of this class is that deleted elements are not actually
 // deleted until CollectGarbage() is called. Delete elements with care.
 class Mesh {
- public:
+public:
   Mesh();
 
   // Methods to load/save the mesh to/from disk. The file type is deduced from
   // the extention of the provided filename. Texture file defines the filename
   // For details on supported formats, see io/read_ply_file.h and
   // io/write_ply_file.h
-  bool Load(const std::string& mesh_file);
-  void Save(const std::string& output_file);
+  bool Load(const std::string &mesh_file);
+  void Save(const std::string &output_file);
 
   // Append all the information of another mesh into this one. Does not modify
   // the other mesh.
-  void Append(const Mesh& rhs_mesh);
+  void Append(const Mesh &rhs_mesh);
 
   int NumVertices() const;
   int NumTriangleFaces() const;
   bool HasUVs() const;
 
   // Vertex getter/setters.
-  VertexId AddVertex(const Eigen::Vector3f& vertex);
+  VertexId AddVertex(const Eigen::Vector3f &vertex);
 
   // This marks the vertex for deletion. The vertex data will still live in the
   // mesh (so that vertex ids, etc. are not destroyed) but no triangle/edge data
@@ -55,7 +55,7 @@ class Mesh {
 
   // Set/get the vertex positions.
   void SetVertexPosition(const VertexId vertex_id,
-                         const Eigen::Vector3f& position);
+                         const Eigen::Vector3f &position);
   Eigen::Vector3f VertexPosition(const VertexId vertex_id) const;
 
   // Returns the valence (also known as "degree") of the vertex.
@@ -82,8 +82,8 @@ class Mesh {
   // Similar to above, the mesh face ids are stored in continuous memory in an
   // implementation-specific format. We return a pointer to the continuous block
   // of 3 vertex ids that the user may
-  Eigen::Matrix<VertexId, 3, 1> GetVertexIdsForTriangleFace(
-      const TriangleFaceId face_id) const;
+  Eigen::Matrix<VertexId, 3, 1>
+  GetVertexIdsForTriangleFace(const TriangleFaceId face_id) const;
 
   // Returns the median edge length of all edges.
   float MedianEdgeLength() const;
@@ -102,8 +102,8 @@ class Mesh {
   Eigen::Vector3f ComputeVertexNormal(const VertexId vertex_id) const;
 
   // Computes the normals for all triangles and stores the result in a map.
-  std::unordered_map<TriangleFaceId, Eigen::Vector3f> ComputeAllFaceNormals()
-      const;
+  std::unordered_map<TriangleFaceId, Eigen::Vector3f>
+  ComputeAllFaceNormals() const;
 
   // Computes the normal of all vertices from the 1-ring neighborhood of each
   // vertex.
@@ -119,21 +119,28 @@ class Mesh {
   std::unordered_map<TriangleFaceId, float> ComputeAllFaceAreas() const;
 
   // Return all triangles that contain this vertex.
-  std::unordered_set<TriangleFaceId> TrianglesAtVertex(
-      const VertexId vertex_id) const;
+  std::unordered_set<TriangleFaceId>
+  TrianglesAtVertex(const VertexId vertex_id) const;
 
   // Return all vertices that are contain edges to the given vertex
   std::unordered_set<VertexId> EdgesToVertex(const VertexId vertex_id) const;
 
   // Return all neighbors of the triangle face.
-  std::unordered_set<TriangleFaceId> NeighborsOfTriangle(
-      const TriangleFaceId face_id) const;
+  std::unordered_set<TriangleFaceId>
+  NeighborsOfTriangle(const TriangleFaceId face_id) const;
 
   // Texture coordinates for vertices
-  void SetVertexUV(const VertexId& vertex, const float& u, const float& v);
-  void SetVertexUV(const VertexId& vertex, const Eigen::Vector2f& uv);
+  void SetVertexUV(const VertexId &vertex, const float &u, const float &v);
+  void SetVertexUV(const VertexId &vertex, const Eigen::Vector2f &uv);
 
-  Eigen::Vector2f VertexUV(const VertexId& vertex) const;
+  Eigen::Vector2f VertexUV(const VertexId &vertex) const;
+
+  // Applies a 4x4 transformation matrix to all points in the mesh
+  void ApplyTransform(const Eigen::Matrix4f &transform);
+
+  // Flips the normals of all the faces in the mesh (i.e. from CW to CCW and
+  // vice versa)
+  void FlipFaceOrientation();
 
   void SubdivideTriangle(const TriangleFaceId triangle);
 
@@ -143,30 +150,29 @@ class Mesh {
   // edges. Returns true if any edges were removed and false otherwise.
   bool DecimateMesh(const double desired_ratio);
 
-  bool GetSubMesh(const std::unordered_set<TriangleFaceId>& faces,
-                  Mesh* new_mesh) const;
+  bool GetSubMesh(const std::unordered_set<TriangleFaceId> &faces,
+                  Mesh *new_mesh) const;
 
   // Split the mesh into submeshes where each sub-mesh has at most
   // max_num_vertices_per_mesh vertices.
   bool SplitMeshByMaxVertexCount(const int max_num_vertices_per_mesh,
-                                 std::vector<Mesh>* meshes);
+                                 std::vector<Mesh> *meshes);
 
   // Returns a pointer to the mesh vertex positions. This is mainly for use with
   // OpenGL.
-  const float* vertex_positions() const;
+  const float *vertex_positions() const;
 
   // Returns all UV coordinates. Also for use with OpenGL.
-  const float* uvs() const;
+  const float *uvs() const;
 
   // Returns all triangles by their vertex ids.
-  std::vector<Eigen::Matrix<VertexId, 3, 1> > triangles() const;
-
+  std::vector<Eigen::Matrix<VertexId, 3, 1>> triangles() const;
 
   // Comments in string form, if loaded from PLY
   std::vector<std::string> comments;
 
- private:
-	 bool has_uvs_;
+private:
+  bool has_uvs_;
   // TODO(csweeney): Need to do more research to understand if exact predicates
   // are needed here.
   typedef CGAL::Simple_cartesian<float> CGALKernel;
@@ -177,10 +183,10 @@ class Mesh {
   typedef CGALMesh::Face_index FaceIndex;
   typedef CGALMesh::Vertex_index VertexIndex;
 
-  Eigen::Vector3f CGALPoint3ToEigenVector3f(const CGALPoint3& vertex) const;
-  CGALPoint3 EigenVector3fToCGALVertex(const Eigen::Vector3f& point) const;
-  CGALPoint2 EigenVector2fToCGALPoint2(const Eigen::Vector2f& point) const;
-  Eigen::Vector2f CGALPoint2ToEigenVector2f(const CGALPoint2& vertex) const;
+  Eigen::Vector3f CGALPoint3ToEigenVector3f(const CGALPoint3 &vertex) const;
+  CGALPoint3 EigenVector3fToCGALVertex(const Eigen::Vector3f &point) const;
+  CGALPoint2 EigenVector2fToCGALPoint2(const Eigen::Vector2f &point) const;
+  Eigen::Vector2f CGALPoint2ToEigenVector2f(const CGALPoint2 &vertex) const;
 
   // The interal representation of the mesh is and CGAL triangular surface
   // mesh. This allows for efficient storage and access internally, and a
@@ -189,4 +195,4 @@ class Mesh {
   CGALMesh::Property_map<VertexIndex, CGALPoint2> uv_map_;
 };
 
-}  // namespace replay
+} // namespace replay

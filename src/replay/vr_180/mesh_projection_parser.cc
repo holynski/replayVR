@@ -140,7 +140,7 @@ Mesh MeshProjectionParser::ParseMesh() {
     mapping[i] = mesh.AddVertex(Eigen::Vector3f(x, y, z));
     mesh.SetVertexUV(mapping[i], u, v);
   }
-  bool flip_face_orientation = false;
+  bool flip_face_orientation = true;
   for (int i = 0; i < vertex_list_count; i++) {
     const uint32_t index_count = index_counts[i];
     uint32_t index = 0;

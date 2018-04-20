@@ -87,6 +87,11 @@ bool StereoVideoAngularRenderer::Initialize(
   Eigen::Matrix3f rotation;
   int index = 0;
 
+  mesh_ids_.push_back(renderer_->UploadMesh(meshes_[0]));
+  mesh_ids_.push_back(renderer_->UploadMesh(meshes_[1]));
+  CHECK_GE(mesh_ids_[0], 0);
+  CHECK_GE(mesh_ids_[1], 0);
+
   // TODO(holynski): Load metadata without decoding frames
   while (reader_.FetchOrientedFrame()) {
     rotation = reader_.GetFetchedOrientation();
@@ -109,10 +114,7 @@ bool StereoVideoAngularRenderer::Initialize(
   LOG(INFO) << "Loaded " << index << "/" << total_frames << " frames.";
   LOG(INFO) << "Done. Found " << index << " frames.";
   renderer_->ShowWindow();
-  mesh_ids_.push_back(renderer_->UploadMesh(meshes_[0]));
-  mesh_ids_.push_back(renderer_->UploadMesh(meshes_[1]));
-  CHECK_GE(mesh_ids_[0], 0);
-  CHECK_GE(mesh_ids_[1], 0);
+
   renderer_->UploadTexture(frames_[0], "image");
   return true;
 }
