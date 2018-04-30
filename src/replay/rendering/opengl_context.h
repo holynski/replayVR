@@ -24,14 +24,14 @@
 #include "replay/depth_map/depth_map.h"
 #include "replay/mesh/mesh.h"
 #include "replay/mesh/triangle_id_map.h"
-#include "replay/third_party/theia/sfm/camera/camera.h"
+#include "replay/camera/camera.h"
 #include "replay/util/row_array.h"
 
 namespace replay {
 
 // Creates an OpenGL composite projection-extrinsics matrix from a Camera
 // that can be passed to the UploadShaderUniform function.
-Eigen::Matrix4f GetOpenGLMatrix(const theia::Camera& camera);
+Eigen::Matrix4f GetOpenGLMatrix(const Camera& camera);
 
 // The OpenGLContext class is a wrapper for shader rendering via OpenGL.
 // Multiple instances of this class cannot exist on different threads safely.
@@ -155,13 +155,13 @@ class OpenGLContext {
   // center to the near and far clipping planes. Otherwise, they are set to the
   // default values of 0.01 and 100, respectively.
   // The render viewport (size of the output rendered image) is also resized to
-  // the size of the theia::Camera image. If rendering to the window, an attempt
+  // the size of the Camera image. If rendering to the window, an attempt
   // is made to resize the window to the
   // viewport size. If this is not possible, due to OS window manager
   // constraints, the window remains at its current size.
   // Returns true if the viewpoint was set successfully, false otherwise.
-  bool SetViewpoint(const theia::Camera& camera);
-  bool SetViewpoint(const theia::Camera& camera, const float& near_clip,
+  bool SetViewpoint(const Camera& camera);
+  bool SetViewpoint(const Camera& camera, const float& near_clip,
                     const float& far_clip);
 
   // If not using the above SetViewpoint functions, you may instead use these

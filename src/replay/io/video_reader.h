@@ -51,7 +51,7 @@ class VideoReader {
   // If the 'bgr' flag is disabled, the returned image will be in RGB format
   // instead of BGR. This is useful when you want to avoid extra pixel type
   // conversion when uploading to OpenGL.
-  cv::Mat3b ReadFrame(bool bgr = true);
+  cv::Mat3b ReadFrame(const bool bgr = true);
 
   // Returns the next packet in the video file. This may be from either a Video,
   // Audio, or Metadata stream. If the end of the stream has been reached, or

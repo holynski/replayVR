@@ -15,10 +15,6 @@ extern "C" {
 #include <opencv2/opencv.hpp>
 #include "replay/io/video_reader.h"
 
-// Get video seeking working
-//
-// Get nearest metadata frame to video frame
-
 namespace replay {
 
 // Static flag to ensure we only register libav once at startup
@@ -153,7 +149,7 @@ Packet *VideoReader::ReadPacket() {
   }
 }  // namespace replay
 
-cv::Mat3b VideoReader::ReadFrame(bool bgr) {
+cv::Mat3b VideoReader::ReadFrame(const bool bgr) {
   CHECK(file_open_) << "Call Open() first!";
 
   Packet *packet;

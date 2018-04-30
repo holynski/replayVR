@@ -24,7 +24,10 @@ class VR180VideoReader : public VideoReader {
   bool Open(const std::string& filename);
 
   // Returns a frame with its corresponding rotation (world -> local)
-  bool GetOrientedFrame(cv::Mat3b& frame, Eigen::Matrix3f& rotation);
+  // If the bgr flag is changed to false, then the image will be converted to
+  // RGB before returning. This may cause some overhead.
+  bool GetOrientedFrame(cv::Mat3b& frame, Eigen::Matrix3f& rotation,
+                        const bool bgr = true);
 
   // Returns the stereo distortion meshes for each eye
   std::vector<Mesh> GetMeshes();
@@ -36,12 +39,13 @@ class VR180VideoReader : public VideoReader {
   // visualization purposes
   Mesh GetTrajectoryMesh();
 
-  // Advanced usage, to avoid wasting time on video decode when we only want the metadata.
+  // Advanced usage, to avoid wasting time on video decode when we only want the
+  // metadata.
   //
   // Fetches the next oriented frame pair, but does not decode the video frame.
   bool FetchOrientedFrame();
   // Decodes and returns the frame.
-  cv::Mat3b GetFetchedFrame() const;
+  cv::Mat3b GetFetchedFrame(const bool bgr = true) const;
   // Returns the orientation for the frame.
   Eigen::Matrix3f GetFetchedOrientation() const;
 

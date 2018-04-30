@@ -9,11 +9,11 @@
 
 #include <fstream>
 #include <opencv2/opencv.hpp>
+#include <glog/logging.h>
 
 #include "replay/depth_map/depth_map.h"
 #include "replay/mesh/mesh.h"
 #include "replay/mesh/triangle_id_map.h"
-#include "replay/third_party/theia/sfm/camera/camera.h"
 #include "replay/util/row_array.h"
 
 namespace replay {
@@ -67,27 +67,6 @@ int OpenGLContext::instantiated_renderers_ = 0;
 float OpenGLContext::framebuffer_size_to_screen_coords_ = 1.0;
 std::unordered_map<GLFWwindow*, OpenGLContext*>
     OpenGLContext::window_to_renderer_;
-
-Eigen::Matrix4f GetOpenGLMatrix(const theia::Camera& camera) {
-  static const float far_clip = 100.0f;
-  static const float near_clip = 0.01f;
-  Eigen::Matrix4d extrinsics = Eigen::Matrix4d::Zero();
-  Eigen::Matrix3d rotation = camera.GetOrientationAsRotationMatrix();
-  rotation.row(0) = -rotation.row(0);
-  rotation.row(2) = -rotation.row(2);
-  extrinsics.block<3, 3>(0, 0) = rotation;
-  extrinsics.block<3, 1>(0, 3) = -rotation * camera.GetPosition();
-  extrinsics(3, 3) = 1;
-
-  Eigen::Matrix4d projection = Eigen::Matrix4d::Zero();
-  projection(0, 0) = -camera.FocalLength() / camera.PrincipalPointX();
-  projection(1, 1) = -camera.FocalLength() / camera.PrincipalPointY();
-  projection(2, 2) = -(far_clip + near_clip) / (far_clip - near_clip);
-  projection(2, 3) = -(2 * far_clip * near_clip) / (far_clip - near_clip);
-  projection(3, 2) = -1;
-  Eigen::Matrix4f retval = (projection * extrinsics).cast<float>();
-  return retval;
-}
 
 OpenGLContext::OpenGLContext()
     : fullscreen_triangle_mesh_(-1),
@@ -821,7 +800,7 @@ bool OpenGLContext::UploadTextureToArray(const DepthMap& depth,
                                       depth.Rows(), GL_RED, index);
 }
 
-bool OpenGLContext::SetViewpoint(const theia::Camera& camera) {
+bool OpenGLContext::SetViewpoint(const Camera& camera) {
   return SetViewpoint(camera, 0.01f, 100.0f);
 }
 
@@ -837,37 +816,24 @@ void OpenGLContext::SetViewportSize(const int& width, const int& height,
   }
 }
 
-bool OpenGLContext::SetViewpoint(const theia::Camera& camera,
+bool OpenGLContext::SetViewpoint(const Camera& camera,
                                  const float& near_clip,
                                  const float& far_clip) {
   glfwMakeContextCurrent(window_);
   CHECK(using_projection_matrix_[current_program_])
       << "Cannot call SetViewpoint on a fullscreen shader!";
-  Eigen::Matrix4d extrinsics = Eigen::Matrix4d::Zero();
-  Eigen::Matrix3d rotation = camera.GetOrientationAsRotationMatrix();
-  rotation.row(0) = -rotation.row(0);
-  rotation.row(2) = -rotation.row(2);
-  extrinsics.block<3, 3>(0, 0) = rotation;
-  extrinsics.block<3, 1>(0, 3) = -rotation * camera.GetPosition();
-  extrinsics(3, 3) = 1;
 
-  Eigen::Matrix4d projection = Eigen::Matrix4d::Zero();
-  projection(0, 0) = -camera.FocalLength() / camera.PrincipalPointX();
-  projection(1, 1) = -camera.FocalLength() / camera.PrincipalPointY();
-  projection(2, 2) = -(far_clip + near_clip) / (far_clip - near_clip);
-  projection(2, 3) = -(2 * far_clip * near_clip) / (far_clip - near_clip);
-  projection(3, 2) = -1;
-  projection_ = (projection * extrinsics).cast<float>();
+  projection_ = camera.GetOpenGlMvpMatrix();
 
   CHECK(current_program_ >= 0) << "Did not call UseShader!";
   mvp_location_ = glGetUniformLocation(programs_[current_program_], "MVP");
   glUseProgram(programs_[current_program_]);
+  width_ = camera.GetImageSize().x();
+  height_ = camera.GetImageSize().y();
   glfwSetWindowSize(window_,
-                    framebuffer_size_to_screen_coords_ * camera.ImageWidth(),
-                    framebuffer_size_to_screen_coords_ * camera.ImageHeight());
-  width_ = camera.ImageWidth();
-  height_ = camera.ImageHeight();
-  glViewport(0, 0, camera.ImageWidth(), camera.ImageHeight());
+                    framebuffer_size_to_screen_coords_ * width_,
+                    framebuffer_size_to_screen_coords_ * height_);
+  glViewport(0, 0, width_, height_);
 
   glUniformMatrix4fv(mvp_location_, 1, GL_FALSE,
                      (const GLfloat*)projection_.data());

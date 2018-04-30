@@ -13,6 +13,7 @@ set(THIRD_PARTY_SRC
   )
 
 set(REPLAY_SRC
+  camera/camera.cc
   depth_map/depth_map.cc
   io/byte_stream_reader.cc
   io/read_ply_file.cc
@@ -23,8 +24,11 @@ set(REPLAY_SRC
   rendering/opengl_context.cc
   rendering/stereo_video_angular_renderer.cc
   rendering/vr180_renderer.cc
+  rendering/vr180_undistorter.cc
   rendering/vr_context.cc
+  util/filesystem.cc
   util/lru_cache.cc
+  util/strings.cc
   util/timer.cc
   vr_180/mesh_projection_parser.cc
   vr_180/vr_180_video_reader.cc

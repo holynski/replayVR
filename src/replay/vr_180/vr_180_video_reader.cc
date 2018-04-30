@@ -33,7 +33,8 @@ Eigen::Matrix3f AngleAxisToRotation(const Eigen::AngleAxisf &angle_axis) {
 }  // namespace
 
 bool VR180VideoReader::GetOrientedFrame(cv::Mat3b &frame,
-                                        Eigen::Matrix3f &rotation) {
+                                        Eigen::Matrix3f &rotation,
+                                        const bool bgr) {
   DCHECK(file_open_) << "Call Open() first!";
 
   Packet *packet;
@@ -48,7 +49,7 @@ bool VR180VideoReader::GetOrientedFrame(cv::Mat3b &frame,
   }
 
   VideoPacket *video_packet = static_cast<VideoPacket *>(packet);
-  frame = AVFrameToMat(video_packet->frame, false);
+  frame = AVFrameToMat(video_packet->frame, bgr);
   const Eigen::AngleAxisf &angle_axis =
       GetAngleAxis(video_packet->time_in_seconds);
   rotation = AngleAxisToRotation(angle_axis);
@@ -77,8 +78,8 @@ bool VR180VideoReader::FetchOrientedFrame() {
   return true;
 }
 
-cv::Mat3b VR180VideoReader::GetFetchedFrame() const {
-  return AVFrameToMat(encoded_frame_->frame, false);
+cv::Mat3b VR180VideoReader::GetFetchedFrame(const bool bgr) const {
+  return AVFrameToMat(encoded_frame_->frame, bgr);
 }
 
 Eigen::Matrix3f VR180VideoReader::GetFetchedOrientation() const {
