@@ -115,8 +115,6 @@ void VR180Renderer::Render() {
   CHECK(renderer_->UseShader(shader_id_));
 
   renderer_->UpdatePose();
-  Eigen::Matrix3f hmd_rotation =
-      renderer_->GetHMDPose().block(0, 0, 3, 3).transpose();
   
   // Start a timer from each render call to the next, so we don't play back the video too quickly.
   clock_.Stop();
