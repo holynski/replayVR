@@ -8,7 +8,7 @@
 #include <Eigen/Dense>
 #include "replay/rendering/opengl_context.h"
 #include "replay/rendering/vr180_undistorter.h"
-#include "replay/camera/camera.h"
+#include "replay/camera/pinhole_camera.h"
 
 DEFINE_string(video_file, "", "Spherical video file to parse");
 DEFINE_string(output_folder, "", "Output folder to save frames");
@@ -25,17 +25,17 @@ int main(int argc, char **argv) {
       std::make_shared<replay::OpenGLContext>();
   CHECK(renderer->Initialize());
 
-  replay::VR180Undistorter undistorter(renderer);
 
-  replay::Camera camera(replay::CameraType::PINHOLE);
-  camera.SetPosition(Eigen::Vector3f(0,0,0));
-  camera.SetOrientationFromLookAtUpVector(Eigen::Vector3f(0,0,-1), Eigen::Vector3f(0,-1,0));
+  replay::PinholeCamera camera;
+  camera.SetPosition(Eigen::Vector3d(0,0,0));
+  camera.SetOrientationFromLookAtUpVector(Eigen::Vector3d(0,0,-1), Eigen::Vector3d(0,-1,0));
   camera.SetImageSize(Eigen::Vector2i(2160, 2160));
-  camera.SetFocalLengthFromFOV(Eigen::Vector2f(FLAGS_fov, FLAGS_fov));
-  camera.SetPrincipalPoint(Eigen::Vector2f(1080, 1080));
+  camera.SetFocalLengthFromFOV(Eigen::Vector2d(FLAGS_fov, FLAGS_fov));
+  camera.SetPrincipalPoint(Eigen::Vector2d(1080, 1080));
   LOG(INFO) << camera.GetFocalLength();
 
-  CHECK(undistorter.Initialize(FLAGS_video_file, camera));
+  replay::VR180Undistorter undistorter(renderer, camera);
+  CHECK(undistorter.Open(FLAGS_video_file));
 
   cv::Mat3b left_eye, right_eye;
   int filenumber = 0;

@@ -18,14 +18,14 @@ namespace replay {
 
 class VR180Undistorter {
  public:
-  explicit VR180Undistorter(std::shared_ptr<OpenGLContext> renderer);
+  explicit VR180Undistorter(std::shared_ptr<OpenGLContext> renderer, const Camera& camera);
 
   bool UndistortFrame(cv::Mat3b* left, cv::Mat3b* right);
 
-  bool Initialize(const std::string &spherical_video_filename, const Camera& camera);
+  bool Open(const std::string &spherical_video_filename);
 
  private:
-  Camera camera_;
+  const Camera& camera_;
   std::shared_ptr<OpenGLContext> renderer_;
   std::vector<Mesh> meshes_;
   std::vector<int> mesh_ids_;

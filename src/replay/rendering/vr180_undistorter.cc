@@ -44,15 +44,17 @@ static const std::string fragment_source =
 
 }  // namespace
 
-VR180Undistorter::VR180Undistorter(std::shared_ptr<OpenGLContext> renderer)
-    : renderer_(renderer), is_initialized_(false) {
-  CHECK(renderer->IsInitialized()) << "Initialize OpenGL renderer first!";
-}
+VR180Undistorter::VR180Undistorter(std::shared_ptr<OpenGLContext> renderer,
+                                   const Camera& camera)
+    : camera_(camera), renderer_(renderer), is_initialized_(false) {}
 
 namespace {}  // namespace
 
-bool VR180Undistorter::Initialize(const std::string& spherical_video_filename, const Camera& camera) {
-  camera_ = camera;
+bool VR180Undistorter::Open(const std::string& spherical_video_filename) {
+  if (!renderer_->IsInitialized()) {
+    LOG(ERROR) << "Initialize OpenGL renderer first!";
+    return false;
+  }
   if (!renderer_->CompileAndLinkShaders(vertex_source, fragment_source,
                                         &shader_id_)) {
     LOG(ERROR) << "Couldn't compile shader!";

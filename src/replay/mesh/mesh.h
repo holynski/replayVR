@@ -30,7 +30,7 @@ public:
   // For details on supported formats, see io/read_ply_file.h and
   // io/write_ply_file.h
   bool Load(const std::string &mesh_file);
-  void Save(const std::string &output_file);
+  void Save(const std::string &output_file) const;
 
   // Append all the information of another mesh into this one. Does not modify
   // the other mesh.

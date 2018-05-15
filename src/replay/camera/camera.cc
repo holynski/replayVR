@@ -1,52 +1,47 @@
 #include "replay/camera/camera.h"
 
+#include <glog/logging.h>
 #include <Eigen/Dense>
 
 namespace replay {
 
 Camera::Camera() : type_(CameraType::PINHOLE) {}
 
-Camera::Camera(const CameraType type)
-    : type_(type),
-      intrinsics_(Eigen::Matrix3f::Identity()),
-      extrinsics_(Eigen::Matrix4f::Identity()) {}
+CameraType Camera::GetType() const { return type_; }
 
-Eigen::Vector2f Camera::GetFocalLength() const {
-  return Eigen::Vector2f(intrinsics_(0, 0), intrinsics_(1, 1));
+Eigen::Vector2d Camera::GetFocalLength() const {
+  return Eigen::Vector2d(intrinsics_(0, 0), intrinsics_(1, 1));
 }
 
-Eigen::Vector2f Camera::GetPrincipalPoint() const {
-  return Eigen::Vector2f(intrinsics_(0, 2), intrinsics_(1, 2));
+Eigen::Vector2d Camera::GetPrincipalPoint() const {
+  return Eigen::Vector2d(intrinsics_(0, 2), intrinsics_(1, 2));
 }
 
-Eigen::Matrix3f Camera::GetIntrinsics() const { return intrinsics_; }
+double Camera::GetSkew() const { return intrinsics_(0, 1); }
 
-Eigen::Vector2f Camera::GetFOV() const {
-  return Eigen::Vector2f(2 * atan2(image_size_[0] * 0.5, intrinsics_(0, 0)),
-                         2 * atan2(image_size_[1] * 0.5, intrinsics_(1, 1)))
-             .array()
-             .abs() *
-         (180.f / M_PI);
+const Eigen::Matrix3d& Camera::GetIntrinsicsMatrix() const {
+  return intrinsics_;
 }
 
 Eigen::Vector2i Camera::GetImageSize() const { return image_size_; }
 
-void Camera::SetFocalLength(const Eigen::Vector2f& focal) {
+const std::vector<double>& Camera::GetDistortionCoeffs() const {
+  return distortion_coeffs_;
+}
+
+void Camera::SetFocalLength(const Eigen::Vector2d& focal) {
   intrinsics_(0, 0) = focal[0];
   intrinsics_(1, 1) = focal[1];
 }
 
-void Camera::SetFocalLengthFromFOV(const Eigen::Vector2f& fov) {
-  intrinsics_(0, 0) = image_size_[0] / (2 * tan(fov[0] * (M_PI / 180.f) * 0.5));
-  intrinsics_(1, 1) = image_size_[1] / (2 * tan(fov[1] * (M_PI / 180.f) * 0.5));
-}
-
-void Camera::SetPrincipalPoint(const Eigen::Vector2f& principal) {
+void Camera::SetPrincipalPoint(const Eigen::Vector2d& principal) {
   intrinsics_(0, 2) = principal[0];
   intrinsics_(1, 2) = principal[1];
 }
 
-void Camera::SetIntrinsics(const Eigen::Matrix3f& intrinsics) {
+void Camera::SetSkew(const double skew) { intrinsics_(0, 1) = skew; }
+
+void Camera::SetIntrinsicsMatrix(const Eigen::Matrix3d& intrinsics) {
   intrinsics_ = intrinsics;
 }
 
@@ -54,67 +49,74 @@ void Camera::SetImageSize(const Eigen::Vector2i& image_size) {
   image_size_ = image_size;
 }
 
-Eigen::Matrix3f Camera::GetRotation() const {
+Eigen::Matrix3d Camera::GetRotation() const {
   return extrinsics_.block(0, 0, 3, 3);
 }
 
-Eigen::Quaternionf Camera::GetOrientation() const {
-  return Eigen::Quaternionf(Eigen::Matrix3f(extrinsics_.block(0, 0, 3, 3)));
+Eigen::Quaterniond Camera::GetOrientation() const {
+  return Eigen::Quaterniond(Eigen::Matrix3d(extrinsics_.block(0, 0, 3, 3)));
 }
 
-Eigen::Vector3f Camera::GetPosition() const {
+Eigen::Vector3d Camera::GetPosition() const {
   return -extrinsics_.block(0, 0, 3, 3) * extrinsics_.block(0, 3, 3, 1);
 }
 
-Eigen::Matrix4f Camera::GetExtrinsics() const { return extrinsics_; }
+Eigen::Matrix4d Camera::GetExtrinsics() const { return extrinsics_; }
 
-void Camera::SetRotation(const Eigen::Matrix3f& rotation) {
+void Camera::SetRotation(const Eigen::Matrix3d& rotation) {
   extrinsics_.block(0, 0, 3, 3) = rotation;
 }
 
-void Camera::SetOrientation(const Eigen::Quaternionf& orientation) {
+void Camera::SetOrientation(const Eigen::Quaterniond& orientation) {
   extrinsics_.block(0, 0, 3, 3) = orientation.toRotationMatrix();
 }
 
-void Camera::SetOrientationFromLookAtUpVector(const Eigen::Vector3f& lookat,
-                                              const Eigen::Vector3f& up) {
-  extrinsics_.block(0, 0, 3, 3) = Eigen::Matrix3f::Identity();
+void Camera::SetOrientationFromLookAtUpVector(const Eigen::Vector3d& lookat,
+                                              const Eigen::Vector3d& up) {
+  extrinsics_.block(0, 0, 3, 3) = Eigen::Matrix3d::Identity();
   extrinsics_.block(0, 0, 3, 3).col(2) = lookat;
   extrinsics_.block(0, 0, 3, 3).col(1) = up;
 }
 
-void Camera::SetPosition(const Eigen::Vector3f& position) {
+void Camera::SetPosition(const Eigen::Vector3d& position) {
   extrinsics_.block(0, 3, 3, 1) = position;
 }
 
-void Camera::SetExtrinsics(const Eigen::Matrix4f& extrinsics) {
+void Camera::SetExtrinsics(const Eigen::Matrix4d& extrinsics) {
   extrinsics_ = extrinsics;
 }
 
-Eigen::Matrix4f Camera::GetOpenGlProjection(float near_clip,
-                                            float far_clip) const {
-  Eigen::Matrix4f projection = Eigen::Matrix4f::Zero();
+Eigen::Matrix4f Camera::GetOpenGlProjection(double near_clip,
+                                            double far_clip) const {
+  Eigen::Matrix4d projection = Eigen::Matrix4d::Zero();
   projection(0, 0) = -intrinsics_(0, 0) / intrinsics_(0, 2);
   projection(1, 1) = -intrinsics_(1, 1) / intrinsics_(1, 2);
   projection(2, 2) = -(far_clip + near_clip) / (far_clip - near_clip);
   projection(2, 3) = -(2 * far_clip * near_clip) / (far_clip - near_clip);
   projection(3, 2) = -1;
-  return projection;
+  return projection.cast<float>();
 }
 
 Eigen::Matrix4f Camera::GetOpenGlExtrinsics() const {
-  Eigen::Matrix4f extrinsics = Eigen::Matrix4f::Zero();
-  Eigen::Matrix3f rotation = GetRotation();
+  Eigen::Matrix4d extrinsics = Eigen::Matrix4d::Zero();
+  Eigen::Matrix3d rotation = GetRotation();
   rotation.row(0) = -rotation.row(0);
   rotation.row(2) = -rotation.row(2);
   extrinsics.block<3, 3>(0, 0) = rotation;
   extrinsics.block<3, 1>(0, 3) = -rotation * GetPosition();
   extrinsics(3, 3) = 1;
-  return extrinsics;
+  return extrinsics.cast<float>();
 }
 
 Eigen::Matrix4f Camera::GetOpenGlMvpMatrix() const {
   return GetOpenGlProjection() * GetOpenGlExtrinsics();
+}
+
+const double* Camera::intrinsics() { return intrinsics_.data(); }
+double* Camera::mutable_intrinsics() { return intrinsics_.data(); }
+const double* Camera::distortion_coeffs() { return distortion_coeffs_.data(); }
+double* Camera::mutable_distortion_coeffs() {
+  return distortion_coeffs_.data();
 }
 
 }  // namespace replay

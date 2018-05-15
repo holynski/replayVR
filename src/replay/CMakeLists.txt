@@ -14,6 +14,8 @@ set(THIRD_PARTY_SRC
 
 set(REPLAY_SRC
   camera/camera.cc
+  camera/pinhole_camera.cc
+  camera/fisheye_camera.cc
   depth_map/depth_map.cc
   io/byte_stream_reader.cc
   io/read_ply_file.cc
@@ -26,6 +28,7 @@ set(REPLAY_SRC
   rendering/vr180_renderer.cc
   rendering/vr180_undistorter.cc
   rendering/vr_context.cc
+  sfm/calibrate_from_mesh.cc
   util/filesystem.cc
   util/lru_cache.cc
   util/strings.cc

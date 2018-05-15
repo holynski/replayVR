@@ -41,7 +41,7 @@ namespace replay {
 		return ReadPLYFile(mesh_file, this);
 	}
 
-	void Mesh::Save(const std::string &output_file) {
+	void Mesh::Save(const std::string &output_file) const {
 		CHECK(WritePLYFile(output_file, *this, true));
 	}
 

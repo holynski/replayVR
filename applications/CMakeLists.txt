@@ -6,3 +6,6 @@ target_link_libraries(render_vr180_video replay)
 
 add_executable(dump_vr180_frames dump_vr180_frames.cc)
 target_link_libraries(dump_vr180_frames replay)
+
+add_executable(reconstruct_vr180_pano reconstruct_vr180_pano.cc)
+target_link_libraries(reconstruct_vr180_pano replay)
