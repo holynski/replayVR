@@ -44,4 +44,13 @@ void PinholeCamera::SetDistortionCoeffs(const std::vector<double>& coeffs) {
   distortion_coeffs_ = coeffs;
 }
 
+Eigen::Vector3d PinholeCamera::PixelToWorldRay(
+      const Eigen::Vector2d& point2d) const {
+  Eigen::Vector3d camera_ray;
+  TransformPixelToCamera(intrinsics_.data(), distortion_coeffs_.data(), point2d.data(), camera_ray.data());
+
+  camera_ray.normalize();
+  return GetRotation().transpose() * camera_ray;
+}
+
 }  // namespace replay

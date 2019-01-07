@@ -95,6 +95,20 @@ class Camera {
   // Returns the orientation of the camera in quaternion format.
   Eigen::Quaterniond GetOrientation() const;
 
+  // Returns the translational component of the extrinsics.
+  // ** NOT TO BE CONFUSED WITH THE CAMERA POSITION **
+  // If you want the position of the camera, see below for GetPosition().
+  Eigen::Vector3d GetTranslation() const;
+
+  // Returns the lookat vector for the camera
+  Eigen::Vector3d GetLookAt() const;
+
+  // Returns the up vector for the camera
+  Eigen::Vector3d GetUpVector() const;
+
+  // Returns the vector pointing to the right (positive X).
+  Eigen::Vector3d GetRightVector() const;
+
   // Returns the XYZ center of the camera.
   Eigen::Vector3d GetPosition() const;
 
@@ -103,6 +117,9 @@ class Camera {
 
   // Sets the camera orientation from a 3x3 rotation matrix
   void SetRotation(const Eigen::Matrix3d& rotation);
+
+  // Sets the translational component of the extrinsics matrix
+  void SetTranslation(const Eigen::Vector3d& translation);
 
   // Sets the camera orientation from a unit quaternion
   void SetOrientation(const Eigen::Quaterniond& orientation);
@@ -141,6 +158,20 @@ class Camera {
   virtual Eigen::Vector2d ProjectPoint(
       const Eigen::Vector3d& point3d) const = 0;
 
+  // Returns the 3D ray a particular pixel in world-space
+  virtual Eigen::Vector3d PixelToWorldRay(
+      const Eigen::Vector2d& point2d) const = 0;
+
+  // Returns a 3D point in world-space given a pixel and depth. Assumed depth is
+  // "ray depth", not projective depth. That is, the distance along the ray
+  // between the camera and the point.
+  Eigen::Vector3d UnprojectPoint(const Eigen::Vector2d& point2d,
+                                 const double depth) const;
+
+  // Returns the angle (in degrees) that a point is from the optical axis. In
+  // other words, "what FOV would I need to see this point?".
+  double AngleFromOpticalAxis(const Eigen::Vector3d& point) const;
+
   // Uses the distortion coefficients to undistort an image.
   virtual cv::Mat UndistortImage(const cv::Mat& image) const = 0;
 
@@ -153,15 +184,22 @@ class Camera {
   template <typename T>
   static void TransformWorldToCamera(const T* extrinsics, const T* world,
                                      T* camera);
+  template <typename T>
+  static void TransformCameraToWorld(const T* extrinsics, const T* world,
+                                     T* camera);
 
   //
   // Accessors for mutable arrays. Useful for speed and in-place modification.
   //
 
-  const double* intrinsics();
+  const double* extrinsics() const;
+  double* mutable_extrinsics();
+  const double* intrinsics() const;
   double* mutable_intrinsics();
-  const double* distortion_coeffs();
+  const double* distortion_coeffs() const;
   double* mutable_distortion_coeffs();
+
+  static std::string TypeToString(const CameraType type);
 
  protected:
   CameraType type_;
@@ -176,13 +214,22 @@ template <typename T>
 void Camera::TransformWorldToCamera(const T* extrinsics, const T* world,
                                     T* camera) {
   camera[0] = world[0] * extrinsics[0] + world[1] * extrinsics[4] +
-              world[2] * extrinsics[8] + world[3] * extrinsics[12];
+              world[2] * extrinsics[8] + T(1) * extrinsics[12];
   camera[1] = world[0] * extrinsics[1] + world[1] * extrinsics[5] +
-              world[2] * extrinsics[9] + world[3] * extrinsics[13];
+              world[2] * extrinsics[9] + T(1) * extrinsics[13];
   camera[2] = world[0] * extrinsics[2] + world[1] * extrinsics[6] +
-              world[2] * extrinsics[10] + world[3] * extrinsics[14];
-  camera[3] = world[0] * extrinsics[3] + world[1] * extrinsics[7] +
-              world[2] * extrinsics[11] + world[3] * extrinsics[15];
+              world[2] * extrinsics[10] + T(1) * extrinsics[14];
+}
+
+template <typename T>
+void Camera::TransformCameraToWorld(const T* extrinsics, const T* camera,
+                                    T* world) {
+  camera[0] = world[0] * extrinsics[0] + world[1] * extrinsics[1] +
+              world[2] * extrinsics[2] + T(1) * extrinsics[3];
+  camera[1] = world[0] * extrinsics[4] + world[1] * extrinsics[5] +
+              world[2] * extrinsics[6] + T(1) * extrinsics[7];
+  camera[2] = world[0] * extrinsics[8] + world[1] * extrinsics[9] +
+              world[2] * extrinsics[10] + T(1) * extrinsics[11];
 }
 
 }  // namespace replay

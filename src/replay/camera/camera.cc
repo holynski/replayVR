@@ -53,8 +53,24 @@ Eigen::Matrix3d Camera::GetRotation() const {
   return extrinsics_.block(0, 0, 3, 3);
 }
 
+Eigen::Vector3d Camera::GetTranslation() const {
+  return extrinsics_.block(0, 3, 1, 3);
+}
+
 Eigen::Quaterniond Camera::GetOrientation() const {
   return Eigen::Quaterniond(Eigen::Matrix3d(extrinsics_.block(0, 0, 3, 3)));
+}
+
+Eigen::Vector3d Camera::GetLookAt() const {
+  return extrinsics_.block(0, 0, 3, 3).row(2);
+}
+
+Eigen::Vector3d Camera::GetUpVector() const {
+  return extrinsics_.block(0, 0, 3, 3).row(1);
+}
+
+Eigen::Vector3d Camera::GetRightVector() const {
+  return extrinsics_.block(0, 0, 3, 3).row(0);
 }
 
 Eigen::Vector3d Camera::GetPosition() const {
@@ -71,15 +87,20 @@ void Camera::SetOrientation(const Eigen::Quaterniond& orientation) {
   extrinsics_.block(0, 0, 3, 3) = orientation.toRotationMatrix();
 }
 
+void Camera::SetTranslation(const Eigen::Vector3d& translation) {
+  extrinsics_.block(0, 3, 1, 3) = translation;
+}
+
 void Camera::SetOrientationFromLookAtUpVector(const Eigen::Vector3d& lookat,
                                               const Eigen::Vector3d& up) {
   extrinsics_.block(0, 0, 3, 3) = Eigen::Matrix3d::Identity();
-  extrinsics_.block(0, 0, 3, 3).col(2) = lookat;
-  extrinsics_.block(0, 0, 3, 3).col(1) = up;
+  extrinsics_.block(0, 0, 3, 3).row(2) = lookat.normalized();
+  extrinsics_.block(0, 0, 3, 3).row(1) = up.normalized();
 }
 
 void Camera::SetPosition(const Eigen::Vector3d& position) {
-  extrinsics_.block(0, 3, 3, 1) = position;
+  extrinsics_.block(0, 3, 3, 1) =
+      (-extrinsics_.block(0, 0, 3, 3).transpose() * position);
 }
 
 void Camera::SetExtrinsics(const Eigen::Matrix4d& extrinsics) {
@@ -112,11 +133,41 @@ Eigen::Matrix4f Camera::GetOpenGlMvpMatrix() const {
   return GetOpenGlProjection() * GetOpenGlExtrinsics();
 }
 
-const double* Camera::intrinsics() { return intrinsics_.data(); }
+Eigen::Vector3d Camera::UnprojectPoint(const Eigen::Vector2d& point2d,
+                                       const double depth) const {
+    const Eigen::Vector3d position = GetPosition();
+    const Eigen::Vector3d direction = PixelToWorldRay(point2d);
+    
+  return position + direction.normalized() * depth;
+}
+
+double Camera::AngleFromOpticalAxis(const Eigen::Vector3d& point) const {
+  const Eigen::Vector3d camera_to_point = (point - GetPosition()).normalized();
+  const Eigen::Vector3d optical_axis = GetLookAt().normalized();
+
+  return 180.0 * acos(camera_to_point.dot(optical_axis)) / M_PI;
+}
+
+const double* Camera::extrinsics() const { return extrinsics_.data(); }
+double* Camera::mutable_extrinsics() { return extrinsics_.data(); }
+const double* Camera::intrinsics() const { return intrinsics_.data(); }
 double* Camera::mutable_intrinsics() { return intrinsics_.data(); }
-const double* Camera::distortion_coeffs() { return distortion_coeffs_.data(); }
+const double* Camera::distortion_coeffs() const {
+  return distortion_coeffs_.data();
+}
 double* Camera::mutable_distortion_coeffs() {
   return distortion_coeffs_.data();
+}
+
+std::string Camera::TypeToString(const CameraType type) {
+  switch (type) {
+    case CameraType::FISHEYE:
+      return "FISHEYE";
+    case CameraType::PINHOLE:
+      return "PINHOLE";
+    default:
+      return "UNKNOWN";
+  }
 }
 
 }  // namespace replay

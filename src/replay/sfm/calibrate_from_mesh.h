@@ -1,3 +1,6 @@
+
+#include <opencv2/opencv.hpp>
+
 namespace replay {
 
 class Mesh;
@@ -11,7 +14,7 @@ class Camera;
 //
 // This method takes 3D-to-2D correspondences (where 3D are the 3D points in the
 // mesh, and 2D are the UV coordinates of those points) to solve for camera
-// intrinsics. This function will not touch the camera extrinsics.
+// intrinsics.
 //
 // The camera should have the image size set. The type of the camera passed to
 // this function (PinholeCamera, FisheyeCamera, etc) will define what parameters
@@ -37,5 +40,8 @@ class Camera;
 // CalibrateFromMeshUVs(mesh, &camera);
 //
 void CalibrateFromMesh(const Mesh& mesh, Camera* camera);
+
+// Visualizes the error for a calibration produced by the function above.
+cv::Mat3b VisualizeMeshCalibrationError(const Mesh& mesh, const Camera* camera);
 
 }  // namespace replay

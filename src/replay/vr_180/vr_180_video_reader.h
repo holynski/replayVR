@@ -26,8 +26,11 @@ class VR180VideoReader : public VideoReader {
   // Returns a frame with its corresponding rotation (world -> local)
   // If the bgr flag is changed to false, then the image will be converted to
   // RGB before returning. This may cause some overhead.
+  // If the frame_time pointer is passed to a valid integer, it will be filled
+  // with the timestamp of the frame. This can be used for easily identifying
+  // the frame.
   bool GetOrientedFrame(cv::Mat3b& frame, Eigen::Matrix3f& rotation,
-                        const bool bgr = true);
+                        double* frame_time = nullptr, const bool bgr = true);
 
   // Returns the stereo distortion meshes for each eye
   std::vector<Mesh> GetMeshes();

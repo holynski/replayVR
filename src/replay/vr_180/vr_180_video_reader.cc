@@ -34,6 +34,7 @@ Eigen::Matrix3f AngleAxisToRotation(const Eigen::AngleAxisf &angle_axis) {
 
 bool VR180VideoReader::GetOrientedFrame(cv::Mat3b &frame,
                                         Eigen::Matrix3f &rotation,
+                                        double* frame_time,
                                         const bool bgr) {
   DCHECK(file_open_) << "Call Open() first!";
 
@@ -53,6 +54,10 @@ bool VR180VideoReader::GetOrientedFrame(cv::Mat3b &frame,
   const Eigen::AngleAxisf &angle_axis =
       GetAngleAxis(video_packet->time_in_seconds);
   rotation = AngleAxisToRotation(angle_axis);
+
+  if (frame_time) {
+    *frame_time = video_packet->time_in_seconds;
+  }
 
   return true;
 }

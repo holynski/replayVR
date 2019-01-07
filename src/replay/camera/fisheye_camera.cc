@@ -7,7 +7,7 @@
 namespace replay {
 
 FisheyeCamera::FisheyeCamera() {
-  distortion_coeffs_.resize(4, 0);
+  distortion_coeffs_.resize(FisheyeCamera::kNumDistortionCoeffs, 0);
   type_ = CameraType::FISHEYE;
   intrinsics_ = Eigen::Matrix3d::Identity();
   extrinsics_ = Eigen::Matrix4d::Identity();
@@ -38,12 +38,23 @@ Eigen::Vector2d FisheyeCamera::ProjectPoint(
 }
 
 void FisheyeCamera::SetDistortionCoeffs(const std::vector<double>& coeffs) {
-  CHECK_EQ(coeffs.size(), 4);
+  CHECK_EQ(coeffs.size(), FisheyeCamera::kNumDistortionCoeffs);
   distortion_coeffs_ = coeffs;
 }
 
 cv::Mat FisheyeCamera::UndistortImage(const cv::Mat& image) const {
   LOG(FATAL) << "Function not implemented";
 }
+
+Eigen::Vector3d FisheyeCamera::PixelToWorldRay(
+      const Eigen::Vector2d& point2d) const {
+  Eigen::Vector3d camera_ray;
+  TransformPixelToCamera(intrinsics_.data(), distortion_coeffs_.data(), point2d.data(), camera_ray.data());
+
+  camera_ray.normalize();
+  return GetRotation().transpose() * camera_ray;
+}
+
+// Need to implement undistort
 
 }  // namespace replay
