@@ -1,6 +1,5 @@
 #pragma once
 
-#include "libavutil/spherical.h"
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #include <CGAL/Simple_cartesian.h>
 #include <CGAL/Surface_mesh.h>
@@ -8,6 +7,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include "libavutil/spherical.h"
 
 #include "replay/third_party/theia/sfm/types.h"
 #include "replay/util/types.h"
@@ -22,8 +22,14 @@ namespace replay {
 // NOTE: One peculiarity of this class is that deleted elements are not actually
 // deleted until CollectGarbage() is called. Delete elements with care.
 class Mesh {
-public:
+ public:
   Mesh();
+
+  // Returns a plane centered at 'center', with normal 'normal', and extent
+  // 'extent'.
+  static Mesh Plane(const Eigen::Vector3f &center,
+                    const Eigen::Vector3f &normal,
+                    const Eigen::Vector2f extent);
 
   // Methods to load/save the mesh to/from disk. The file type is deduced from
   // the extention of the provided filename. Texture file defines the filename
@@ -39,6 +45,7 @@ public:
   int NumVertices() const;
   int NumTriangleFaces() const;
   bool HasUVs() const;
+  bool HasColors() const;
 
   // Vertex getter/setters.
   VertexId AddVertex(const Eigen::Vector3f &vertex);
@@ -82,8 +89,8 @@ public:
   // Similar to above, the mesh face ids are stored in continuous memory in an
   // implementation-specific format. We return a pointer to the continuous block
   // of 3 vertex ids that the user may
-  Eigen::Matrix<VertexId, 3, 1>
-  GetVertexIdsForTriangleFace(const TriangleFaceId face_id) const;
+  Eigen::Matrix<VertexId, 3, 1> GetVertexIdsForTriangleFace(
+      const TriangleFaceId face_id) const;
 
   // Returns the median edge length of all edges.
   float MedianEdgeLength() const;
@@ -102,8 +109,8 @@ public:
   Eigen::Vector3f ComputeVertexNormal(const VertexId vertex_id) const;
 
   // Computes the normals for all triangles and stores the result in a map.
-  std::unordered_map<TriangleFaceId, Eigen::Vector3f>
-  ComputeAllFaceNormals() const;
+  std::unordered_map<TriangleFaceId, Eigen::Vector3f> ComputeAllFaceNormals()
+      const;
 
   // Computes the normal of all vertices from the 1-ring neighborhood of each
   // vertex.
@@ -119,21 +126,25 @@ public:
   std::unordered_map<TriangleFaceId, float> ComputeAllFaceAreas() const;
 
   // Return all triangles that contain this vertex.
-  std::unordered_set<TriangleFaceId>
-  TrianglesAtVertex(const VertexId vertex_id) const;
+  std::unordered_set<TriangleFaceId> TrianglesAtVertex(
+      const VertexId vertex_id) const;
 
   // Return all vertices that are contain edges to the given vertex
   std::unordered_set<VertexId> EdgesToVertex(const VertexId vertex_id) const;
 
   // Return all neighbors of the triangle face.
-  std::unordered_set<TriangleFaceId>
-  NeighborsOfTriangle(const TriangleFaceId face_id) const;
+  std::unordered_set<TriangleFaceId> NeighborsOfTriangle(
+      const TriangleFaceId face_id) const;
 
   // Texture coordinates for vertices
   void SetVertexUV(const VertexId &vertex, const float &u, const float &v);
   void SetVertexUV(const VertexId &vertex, const Eigen::Vector2f &uv);
 
   Eigen::Vector2f VertexUV(const VertexId &vertex) const;
+
+  // Per-vertex colors
+  void SetVertexColor(const VertexId &vertex, const Eigen::Vector3f &color);
+  // Eigen::Vector3f VertexColor(const VertexId &vertex);
 
   // Applies a 4x4 transformation matrix to all points in the mesh
   void ApplyTransform(const Eigen::Matrix4f &transform);
@@ -165,14 +176,18 @@ public:
   // Returns all UV coordinates. Also for use with OpenGL.
   const float *uvs() const;
 
+  // Returns all vertex colors.
+  const float *colors() const;
+
   // Returns all triangles by their vertex ids.
   std::vector<Eigen::Matrix<VertexId, 3, 1>> triangles() const;
 
   // Comments in string form, if loaded from PLY
   std::vector<std::string> comments;
 
-private:
+ private:
   bool has_uvs_;
+  bool has_colors_;
   // TODO(csweeney): Need to do more research to understand if exact predicates
   // are needed here.
   typedef CGAL::Simple_cartesian<float> CGALKernel;
@@ -193,6 +208,7 @@ private:
   // simplified interface wrapped in the REPLAY Mesh class.
   CGALMesh mesh_;
   CGALMesh::Property_map<VertexIndex, CGALPoint2> uv_map_;
+  CGALMesh::Property_map<VertexIndex, CGALPoint3> color_map_;
 };
 
-} // namespace replay
+}  // namespace replay

@@ -8,6 +8,7 @@
 #include "replay/sfm/tracked_point.h"
 
 namespace replay {
+class Mesh;
 
 class Reconstruction {
  public:
@@ -24,9 +25,14 @@ class Reconstruction {
   void SaveTrajectoryMesh(const std::string& filename) const;
   void SaveMesh(const std::string& filename) const;
 
+  const Camera& GetCamera(const int index) const;
+  Camera* GetCameraMutable(const int index);
+
   // Returns a list of cameras that
   std::vector<Camera*> FindSimilarViewpoints(
       const Camera* camera, const int angle_threshold = 10) const;
+
+  Mesh CreateFrustumMesh() const;
 
  private:
   std::vector<Camera*> cameras_;

@@ -10,6 +10,7 @@ namespace replay {
 class PinholeCamera : public Camera {
  public:
   PinholeCamera();
+  Camera* Clone() const override;
 
   Eigen::Vector2d GetFOV() const override;
   void SetFocalLengthFromFOV(const Eigen::Vector2d& focal) override;

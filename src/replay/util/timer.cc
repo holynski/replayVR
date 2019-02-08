@@ -1,6 +1,6 @@
+#include "replay/util/timer.h"
 #include <chrono>
 #include "glog/logging.h"
-#include "replay/util/timer.h"
 
 namespace replay {
 

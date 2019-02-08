@@ -14,6 +14,16 @@ FisheyeCamera::FisheyeCamera() {
   image_size_ = Eigen::Vector2i(0, 0);
 }
 
+Camera* FisheyeCamera::Clone() const {
+  FisheyeCamera* retval = new FisheyeCamera();
+  retval->SetIntrinsicsMatrix(GetIntrinsicsMatrix());
+  retval->SetExtrinsics(GetExtrinsics());
+  retval->SetDistortionCoeffs(GetDistortionCoeffs());
+  retval->SetImageSize(GetImageSize());
+  retval->SetName(GetName());
+  return retval;
+}
+
 Eigen::Vector2d FisheyeCamera::GetFOV() const {
   return Eigen::Vector2d(2 * atan2(image_size_[0] * 0.5, intrinsics_(0, 0)),
                          2 * atan2(image_size_[1] * 0.5, intrinsics_(1, 1)))

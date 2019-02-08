@@ -14,17 +14,27 @@ PinholeCamera::PinholeCamera() {
   image_size_ = Eigen::Vector2i(0, 0);
 }
 
+Camera* PinholeCamera::Clone() const {
+  PinholeCamera* retval = new PinholeCamera();
+  retval->SetIntrinsicsMatrix(GetIntrinsicsMatrix());
+  retval->SetExtrinsics(GetExtrinsics());
+  retval->SetDistortionCoeffs(GetDistortionCoeffs());
+  retval->SetImageSize(GetImageSize());
+  retval->SetName(GetName());
+  return retval;
+}
+
 Eigen::Vector2d PinholeCamera::GetFOV() const {
-  return Eigen::Vector2d(2 * atan2(image_size_[0] * 0.5, intrinsics_(0, 0)),
-                         2 * atan2(image_size_[1] * 0.5, intrinsics_(1, 1)))
+  return Eigen::Vector2d(2 * atan2(0.5, intrinsics_(0, 0)),
+                         2 * atan2(0.5, intrinsics_(1, 1)))
              .array()
              .abs() *
          (180.f / M_PI);
 }
 
 void PinholeCamera::SetFocalLengthFromFOV(const Eigen::Vector2d& fov) {
-  intrinsics_(0, 0) = image_size_[0] / (2 * tan(fov[0] * (M_PI / 180.f) * 0.5));
-  intrinsics_(1, 1) = image_size_[1] / (2 * tan(fov[1] * (M_PI / 180.f) * 0.5));
+  intrinsics_(0, 0) = 1.0 / (2 * tan(fov[0] * (M_PI / 180.f) * 0.5));
+  intrinsics_(1, 1) = 1.0 / (2 * tan(fov[1] * (M_PI / 180.f) * 0.5));
 }
 
 cv::Mat PinholeCamera::UndistortImage(const cv::Mat& image) const {

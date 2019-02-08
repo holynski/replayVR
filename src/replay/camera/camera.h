@@ -34,8 +34,15 @@ enum CameraType { PINHOLE, FISHEYE };
 class Camera {
  public:
   Camera();
+
+  virtual Camera* Clone() const = 0;
+
   // Returns the camera type
   CameraType GetType() const;
+
+  // The filename for the camera, if applicable
+  const std::string& GetName() const;
+  void SetName(const std::string& name);
 
   //
   // Functions for getting/setting intrinsics.
@@ -64,6 +71,9 @@ class Camera {
   // Gets the distortion coefficients
   const std::vector<double>& GetDistortionCoeffs() const;
 
+  // Gets the exposure multiplier
+  const Eigen::Vector3f GetExposure() const;
+
   // Sets the focal lengths in X,Y
   void SetFocalLength(const Eigen::Vector2d& focal);
 
@@ -84,6 +94,9 @@ class Camera {
 
   // Sets the distortion coefficients
   virtual void SetDistortionCoeffs(const std::vector<double>& coeffs) = 0;
+
+  // Gets the exposure multiplier
+  void SetExposure(const Eigen::Vector3f& exposure);
 
   //
   // Functions for getting/setting extrinsics
@@ -141,7 +154,7 @@ class Camera {
   // Returns an OpenGL-style projection matrix (does not include
   // rotation/translation of camera).
   Eigen::Matrix4f GetOpenGlProjection(double near_clip = 0.01f,
-                                      double far_clip = 100.0f) const;
+                                      double far_clip = 1000.0f) const;
 
   // Returns the camera extrinsics in the OpenGL coordinate system.
   Eigen::Matrix4f GetOpenGlExtrinsics() const;
@@ -207,6 +220,8 @@ class Camera {
   Eigen::Matrix4d extrinsics_;
   Eigen::Vector2i image_size_;
   std::vector<double> distortion_coeffs_;
+  std::string name_;
+  Eigen::Vector3f exposure_;
 };
 
 // Assumes column-major storage order of the extrinsics matrix

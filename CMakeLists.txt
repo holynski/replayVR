@@ -15,6 +15,11 @@ set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set( CMAKE_EXPORT_COMPILE_COMMANDS ON )
 
+SET(MACOSX_DEPLOYMENT_TARGET ${DARWIN_MAJOR_SDK_VERSION}.${DARWIN_MINOR_SDK_VERSION})
+SET(CMAKE_CXX_FLAGS "--sysroot ${CMAKE_OSX_SYSROOT} ${CMAKE_CXX_FLAGS}")
+MESSAGE("Setting MACOSX_DEPLOYMENT_TARGET to '${MACOSX_DEPLOYMENT_TARGET}'.")
+
+
 
 # ==============================================================================
 # Additional cmake find modules
@@ -83,6 +88,8 @@ if (GFLAGS_FOUND)
 else (GFLAGS_FOUND)
   message(FATAL_ERROR "Can't find Google FLAGS.")
 endif (GFLAGS_FOUND)
+
+find_package(FreeImage REQUIRED)
 
 # Google Logging
 message("-- Check for Google Log")
@@ -197,6 +204,7 @@ include_directories(
   ${ZLIB_INCLUDE_DIRS}
   ${CGAL_INCLUDE_DIRS}
   ${OPENVR_INCLUDE_DIRS}
+  ${FREEIMAGE_INCLUDE_DIRS}
 )
 
 # NOTE: This fix came from Ceres solver with the following comment:

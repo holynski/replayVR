@@ -232,7 +232,8 @@ class OpenGLContext {
   bool AllocateTextureArray(const std::string& name, const int& width,
                             const int& height, const int& channels,
                             const int& num_elements,
-                            const bool compressed = false);
+                            const bool compressed = false,
+                            const GLint datatype = GL_UNSIGNED_BYTE);
 
   // Renders a frame using the given shader, mesh, and uniforms to an image in
   // memory.
@@ -278,6 +279,7 @@ class OpenGLContext {
   std::vector<GLuint> vbos_;
   std::vector<GLuint> ebos_;
   std::vector<GLuint> uvbos_;
+  std::vector<GLuint> cbos_;
   std::vector<int> num_triangles_;
   GLFWwindow* window_;
   int width_;
@@ -303,7 +305,8 @@ class OpenGLContext {
                              const std::string& name);
   bool UploadTextureToArrayInternal(const void* data, const std::string& name,
                                     const int& width, const int& height,
-                                    const int& format, const int& index);
+                                    const int& format, const GLint& datatype,
+                                    const int& index);
   bool CreateRenderBuffer(const int& datatype, const int& format);
   void DestroyContext();
   static void KeyboardCallback(GLFWwindow* window, int key, int scancode,

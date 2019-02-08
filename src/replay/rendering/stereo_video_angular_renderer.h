@@ -1,5 +1,4 @@
-#ifndef REPLAY_MESH_STEREO_VIDEO_ANGULAR_RENDERER_H_
-#define REPLAY_MESH_STEREO_VIDEO_ANGULAR_RENDERER_H_
+#pragma once
 
 #include "replay/depth_map/depth_map.h"
 #include "replay/mesh/mesh.h"
@@ -7,12 +6,6 @@
 #include "replay/third_party/theia/sfm/camera/camera.h"
 #include "replay/vr_180/vr_180_video_reader.h"
 
-#ifdef __APPLE__
-#define GLFW_INCLUDE_GLCOREARB
-#else // __APPLE__
-#include <GL/glew.h>
-#endif // __APPLE__
-#include <GLFW/glfw3.h>
 namespace replay {
 
 class StereoVideoAngularRenderer {
@@ -39,5 +32,3 @@ private:
   float angular_resolution_ = 0.2; // in degrees
 };
 } // namespace replay
-
-#endif // REPLAY_MESH_STEREO_VIDEO_ANGULAR_RENDERER_H_

@@ -124,7 +124,7 @@ const std::vector<TrackedPoint*>& VideoTracker::TrackFrame(
     // Refine the locations of these features.
     cv::cornerSubPix(
         frame_gray, new_points, cv::Size(10, 10), cv::Size(-1, -1),
-        cv::TermCriteria(CV_TERMCRIT_EPS + CV_TERMCRIT_ITER, 40, 0.001));
+        cv::TermCriteria(cv::TermCriteria::Type::EPS + cv::TermCriteria::Type::COUNT, 40, 0.001));
     for (int i = 0; i < new_points.size(); i++) {
       Eigen::Vector2d point2d(new_points[i].x, new_points[i].y);
       Eigen::Vector3d point3d = camera->UnprojectPoint(point2d, 1);
@@ -215,8 +215,8 @@ std::vector<Eigen::Vector2d> VideoTracker::TrackPoints(
   std::vector<Eigen::Vector2d> new_points(source_points.size(),
                                           Eigen::Vector2d(-1, -1));
 
-  cv::cvtColor(source, source_gray, CV_RGB2GRAY);
-  cv::cvtColor(dest, dest_gray, CV_RGB2GRAY);
+  cv::cvtColor(source, source_gray, cv::COLOR_RGB2GRAY);
+  cv::cvtColor(dest, dest_gray, cv::COLOR_RGB2GRAY);
 
   std::vector<cv::Point2f> points;
   for (const auto& point : source_points) {

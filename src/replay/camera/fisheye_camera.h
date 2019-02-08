@@ -10,7 +10,7 @@ namespace replay {
 class FisheyeCamera : public Camera {
  public:
   FisheyeCamera();
-
+  Camera* Clone() const override;
   Eigen::Vector2d GetFOV() const override;
   void SetFocalLengthFromFOV(const Eigen::Vector2d& focal) override;
   Eigen::Vector2d ProjectPoint(const Eigen::Vector3d& point3d) const override;

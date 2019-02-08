@@ -7,9 +7,9 @@
 #endif  // __APPLE__
 #include <GLFW/glfw3.h>
 
+#include <glog/logging.h>
 #include <fstream>
 #include <opencv2/opencv.hpp>
-#include <glog/logging.h>
 
 #include "replay/depth_map/depth_map.h"
 #include "replay/mesh/mesh.h"
@@ -35,6 +35,15 @@ std::string OpenGLErrorCodeToString(GLenum error) {
       return "UNKNOWN_ERROR (" + std::to_string(error) + ")";
   };
 }
+
+// TODO(holynski): The following does not work:
+//  mesh_id = UploadMesh(mesh);
+//  UseShader(A);
+//  BindMesh(mesh_id);
+//  Render();
+//  UseShader(B);
+//  BindMesh(mesh_id);
+//  Render();
 
 // void PrintAvailableMemoryNvidia() {
 // static const int GL_GPU_MEM_INFO_TOTAL_AVAILABLE_MEM_NVX = 0x9048;
@@ -356,7 +365,8 @@ bool OpenGLContext::BindFullscreenTriangle() {
       return false;
     }
   }
-  return BindMesh(fullscreen_triangle_mesh_);
+  return true;
+  // return BindMesh(fullscreen_triangle_mesh_);
 }
 
 int OpenGLContext::UploadMesh(const Mesh& mesh) {
@@ -367,7 +377,7 @@ int OpenGLContext::UploadMesh(const Mesh& mesh) {
 
   const GLint vert_location =
       glGetAttribLocation(programs_[current_program_], "vert");
-  GLuint vao, vbo, ebo, uvbo;
+  GLuint vao, vbo, ebo, uvbo, cbo;
   glGenVertexArrays(1, &vao);
   glBindVertexArray(vao);
   glEnableVertexAttribArray(vert_location);
@@ -375,11 +385,13 @@ int OpenGLContext::UploadMesh(const Mesh& mesh) {
   glGenBuffers(1, &vbo);
   glGenBuffers(1, &ebo);
   glGenBuffers(1, &uvbo);
+  glGenBuffers(1, &cbo);
 
   vaos_.push_back(vao);
   vbos_.push_back(vbo);
   ebos_.push_back(ebo);
   uvbos_.push_back(uvbo);
+  cbos_.push_back(cbo);
 
   int mesh_id = vaos_.size() - 1;
 
@@ -402,6 +414,20 @@ int OpenGLContext::UploadMesh(const Mesh& mesh) {
     glVertexAttribPointer(uv_location, 2, GL_FLOAT, GL_FALSE, 0, 0);
   }
 
+  if (mesh.HasColors()) {
+    const GLint color_location =
+        glGetAttribLocation(programs_[current_program_], "rgb");
+    if (color_location >= 0) {
+      glBindBuffer(GL_ARRAY_BUFFER, cbo);
+      const float* rgbs = mesh.colors();
+      glBufferData(GL_ARRAY_BUFFER, mesh.NumVertices() * 4 * 3, (void*)rgbs,
+                   GL_STATIC_DRAW);
+      glEnableVertexAttribArray(color_location);
+      glBindBuffer(GL_ARRAY_BUFFER, cbo);
+      glVertexAttribPointer(color_location, 3, GL_FLOAT, GL_FALSE, 0, 0);
+    }
+  }
+
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
   glBufferData(GL_ELEMENT_ARRAY_BUFFER, mesh.NumTriangleFaces() * 3 * 4,
                (void*)mesh.triangles().data(), GL_STATIC_DRAW);
@@ -422,6 +448,37 @@ bool OpenGLContext::BindMesh(const int mesh_id) {
     return false;
   }
   current_mesh_ = mesh_id;
+  const GLint vert_location =
+      glGetAttribLocation(programs_[current_program_], "vert");
+
+  glBindVertexArray(vaos_[current_mesh_]);
+  glEnableVertexAttribArray(vert_location);
+
+  glBindVertexArray(vaos_[current_mesh_]);
+  glBindBuffer(GL_ARRAY_BUFFER, vbos_[current_mesh_]);
+
+  glVertexAttribPointer(vert_location, 3, GL_FLOAT, GL_FALSE, 0, 0);
+
+  const GLint uv_location =
+      glGetAttribLocation(programs_[current_program_], "uv");
+  if (uv_location >= 0) {
+    glBindBuffer(GL_ARRAY_BUFFER, uvbos_[current_mesh_]);
+    glEnableVertexAttribArray(uv_location);
+    glBindBuffer(GL_ARRAY_BUFFER, uvbos_[current_mesh_]);
+    glVertexAttribPointer(uv_location, 2, GL_FLOAT, GL_FALSE, 0, 0);
+  }
+
+  const GLint color_location =
+      glGetAttribLocation(programs_[current_program_], "rgb");
+  if (color_location >= 0) {
+    glBindBuffer(GL_ARRAY_BUFFER, cbos_[current_mesh_]);
+    glEnableVertexAttribArray(color_location);
+    glBindBuffer(GL_ARRAY_BUFFER, cbos_[current_mesh_]);
+    glVertexAttribPointer(color_location, 3, GL_FLOAT, GL_FALSE, 0, 0);
+  }
+
+  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebos_[current_mesh_]);
+
   return true;
 }
 
@@ -566,8 +623,8 @@ bool OpenGLContext::CreateRenderBuffer(const int& datatype, const int& format) {
 
   glTexImage2D(GL_TEXTURE_2D, 0, internal_format, 5000, 5000, 0, format,
                datatype, NULL);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
   glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
@@ -613,14 +670,16 @@ bool OpenGLContext::UploadTextureInternal(void* data, const int& width,
   glBindTexture(GL_TEXTURE_2D, tex);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
   glTexImage2D(GL_TEXTURE_2D, 0, internal_format, width, height, 0, format,
                datatype, data);
   GLint texture_location =
       glGetUniformLocation(programs_[current_program_], name.c_str());
   glUniform1i(texture_location, 4 + textures_opengl_[name]);
+
   CheckForOpenGLErrors();
+  BindMesh(current_mesh_);
   return true;
 }
 
@@ -631,21 +690,34 @@ GLuint OpenGLContext::GetTextureId(const std::string& name) const {
 
 bool OpenGLContext::UploadTexture(const cv::Mat& image,
                                   const std::string& name) {
-  cv::Mat dst;
-  cv::flip(image, dst, 0);
+  cv::Mat dst = image.clone();
+  // cv::flip(image, dst, 0);
+  if (dst.rows % 2 != 0 || dst.cols % 2 != 0) {
+    cv::resize(dst, dst,
+               cv::Size(dst.cols - (dst.cols % 2), dst.rows - (dst.rows % 2)));
+  }
+  unsigned char mat_type = image.type() & CV_MAT_DEPTH_MASK;
+  GLint datatype;
+  switch (mat_type) {
+    case CV_8U:
+      datatype = GL_UNSIGNED_BYTE;
+      break;
+    case CV_32F:
+      datatype = GL_FLOAT;
+      break;
+    default:
+      LOG(FATAL) << "Mat type not supported.";
+  }
   if (dst.channels() == 3)
 
     return UploadTextureInternal(reinterpret_cast<void*>(dst.data), dst.cols,
-                                 dst.rows, GL_RGB, GL_UNSIGNED_BYTE, GL_RGB8,
-                                 name);
+                                 dst.rows, GL_RGB, datatype, GL_RGB8, name);
   if (dst.channels() == 4)
     return UploadTextureInternal(reinterpret_cast<void*>(dst.data), dst.cols,
-                                 dst.rows, GL_RGBA, GL_UNSIGNED_BYTE, GL_RGBA8,
-                                 name);
+                                 dst.rows, GL_RGBA, datatype, GL_RGBA8, name);
   if (dst.channels() == 1)
     return UploadTextureInternal(reinterpret_cast<void*>(dst.data), dst.cols,
-                                 dst.rows, GL_RED, GL_UNSIGNED_BYTE, GL_R8,
-                                 name);
+                                 dst.rows, GL_RED, datatype, GL_R8, name);
   LOG(FATAL) << "Number of channels " << dst.channels()
              << " not implemented in UploadTexture.";
   return false;
@@ -673,8 +745,12 @@ bool OpenGLContext::UpdateTextureInternal(void* data, const int& width,
 
 bool OpenGLContext::UpdateTexture(const cv::Mat& image,
                                   const std::string& name) {
-  cv::Mat dst;
-  cv::flip(image, dst, 0);
+  cv::Mat dst = image.clone();
+  // cv::flip(image, dst, 0);
+  if (dst.rows % 2 != 0 || dst.cols % 2 != 0) {
+    cv::resize(dst, dst,
+               cv::Size(dst.cols - (dst.cols % 2), dst.rows - (dst.rows % 2)));
+  }
   if (dst.channels() == 3)
 
     return UpdateTextureInternal(reinterpret_cast<void*>(dst.data), dst.cols,
@@ -703,7 +779,8 @@ bool OpenGLContext::AllocateTextureArray(const std::string& name,
                                          const int& width, const int& height,
                                          const int& channels,
                                          const int& num_elements,
-                                         const bool compressed) {
+                                         const bool compressed,
+                                         const GLint datatype) {
   glfwMakeContextCurrent(window_);
   CHECK(current_program_ >= 0) << "Did not call UseShader!";
   glUseProgram(programs_[current_program_]);
@@ -723,17 +800,17 @@ bool OpenGLContext::AllocateTextureArray(const std::string& name,
     case 1:
       glTexImage3D(GL_TEXTURE_2D_ARRAY, 0,
                    (compressed ? GL_COMPRESSED_RED : GL_RED), width, height,
-                   num_elements, 0, GL_RED, GL_UNSIGNED_BYTE, NULL);
+                   num_elements, 0, GL_RED, datatype, NULL);
       break;
     case 3:
       glTexImage3D(GL_TEXTURE_2D_ARRAY, 0,
                    (compressed ? GL_COMPRESSED_RGB : GL_RGB), width, height,
-                   num_elements, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+                   num_elements, 0, GL_RGB, datatype, NULL);
       break;
     case 4:
       glTexImage3D(GL_TEXTURE_2D_ARRAY, 0,
                    (compressed ? GL_COMPRESSED_RGBA : GL_RGBA), width, height,
-                   num_elements, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+                   num_elements, 0, GL_RGBA, datatype, NULL);
       break;
     default:
       LOG(FATAL) << "Texture array of " << channels
@@ -741,8 +818,8 @@ bool OpenGLContext::AllocateTextureArray(const std::string& name,
       break;
   }
 
-  glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
   glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
   glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
   GLint texture_location =
@@ -754,7 +831,8 @@ bool OpenGLContext::AllocateTextureArray(const std::string& name,
 
 bool OpenGLContext::UploadTextureToArrayInternal(
     const void* data, const std::string& name, const int& width,
-    const int& height, const int& format, const int& index) {
+    const int& height, const int& format, const GLint& datatype,
+    const int& index) {
   glfwMakeContextCurrent(window_);
   CHECK(current_program_ >= 0) << "Did not call UseShader!";
   glUseProgram(programs_[current_program_]);
@@ -763,7 +841,7 @@ bool OpenGLContext::UploadTextureToArrayInternal(
   GLuint tex = textures_[name];
   glBindTexture(GL_TEXTURE_2D_ARRAY, tex);
   glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, index, width, height, 1, format,
-                  GL_UNSIGNED_BYTE, data);
+                  datatype, data);
   CheckForOpenGLErrors();
   return true;
 }
@@ -771,20 +849,24 @@ bool OpenGLContext::UploadTextureToArrayInternal(
 bool OpenGLContext::UploadTextureToArray(const cv::Mat& image,
                                          const std::string& name,
                                          const int& index) {
-  cv::Mat dst;
-  cv::flip(image, dst, 0);
+  cv::Mat dst = image.clone();
+  // cv::flip(image, dst, 0);
+  if (dst.rows % 2 != 0 || dst.cols % 2 != 0) {
+    cv::resize(dst, dst,
+               cv::Size(dst.cols - (dst.cols % 2), dst.rows - (dst.rows % 2)));
+  }
   switch (dst.channels()) {
     case 1:
       return UploadTextureToArrayInternal(dst.data, name, dst.cols, dst.rows,
-                                          GL_RED, index);
+                                          GL_RED, GL_UNSIGNED_BYTE, index);
       break;
     case 3:
       return UploadTextureToArrayInternal(dst.data, name, dst.cols, dst.rows,
-                                          GL_RGB, index);
+                                          GL_RGB, GL_UNSIGNED_BYTE, index);
       break;
     case 4:
       return UploadTextureToArrayInternal(dst.data, name, dst.cols, dst.rows,
-                                          GL_RGBA, index);
+                                          GL_RGBA, GL_UNSIGNED_BYTE, index);
       break;
     default:
       LOG(FATAL) << "UploadTextureToArray not implemented for "
@@ -797,7 +879,7 @@ bool OpenGLContext::UploadTextureToArray(const DepthMap& depth,
                                          const std::string& name,
                                          const int& index) {
   return UploadTextureToArrayInternal(depth.Depth().data, name, depth.Cols(),
-                                      depth.Rows(), GL_RED, index);
+                                      depth.Rows(), GL_RED, GL_FLOAT, index);
 }
 
 bool OpenGLContext::SetViewpoint(const Camera& camera) {
@@ -811,13 +893,12 @@ void OpenGLContext::SetViewportSize(const int& width, const int& height,
   width_ = width;
   height_ = height;
   if (resize_window) {
-    glfwSetWindowSize(window_, framebuffer_size_to_screen_coords_ * width,
-                      framebuffer_size_to_screen_coords_ * height);
+    //glfwSetWindowSize(window_, framebuffer_size_to_screen_coords_ * width,
+    //                  framebuffer_size_to_screen_coords_ * height);
   }
 }
 
-bool OpenGLContext::SetViewpoint(const Camera& camera,
-                                 const float& near_clip,
+bool OpenGLContext::SetViewpoint(const Camera& camera, const float& near_clip,
                                  const float& far_clip) {
   glfwMakeContextCurrent(window_);
   CHECK(using_projection_matrix_[current_program_])
@@ -830,8 +911,7 @@ bool OpenGLContext::SetViewpoint(const Camera& camera,
   glUseProgram(programs_[current_program_]);
   width_ = camera.GetImageSize().x();
   height_ = camera.GetImageSize().y();
-  glfwSetWindowSize(window_,
-                    framebuffer_size_to_screen_coords_ * width_,
+  glfwSetWindowSize(window_, framebuffer_size_to_screen_coords_ * width_,
                     framebuffer_size_to_screen_coords_ * height_);
   glViewport(0, 0, width_, height_);
 
@@ -865,6 +945,8 @@ bool OpenGLContext::UseShader(const int& shader_id) {
     glUseProgram(programs_[current_program_]);
     if (!using_projection_matrix_[shader_id]) {
       BindFullscreenTriangle();
+    } else {
+      BindMesh(current_mesh_);
     }
     return true;
   }
@@ -881,16 +963,23 @@ void OpenGLContext::Render() {
   glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
   CHECK(current_program_ >= 0) << "Did not call UseShader!";
-  CHECK(current_mesh_ >= 0) << "Did not call BindMesh!";
+  CHECK(current_mesh_ >= 0 || !using_projection_matrix_[current_program_])
+      << "Did not call BindMesh!";
   glUseProgram(programs_[current_program_]);
   if (!using_projection_matrix_[current_program_]) {
     UploadShaderUniform(1.0f, "negative");
+    glBindVertexArray(vaos_[fullscreen_triangle_mesh_]);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebos_[fullscreen_triangle_mesh_]);
+    glBindBuffer(GL_ARRAY_BUFFER, vbos_[fullscreen_triangle_mesh_]);
+    glDrawElements(GL_TRIANGLES, num_triangles_[fullscreen_triangle_mesh_] * 3,
+                   GL_UNSIGNED_INT, 0);
+  } else {
+    glBindVertexArray(vaos_[current_mesh_]);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebos_[current_mesh_]);
+    glBindBuffer(GL_ARRAY_BUFFER, vbos_[current_mesh_]);
+    glDrawElements(GL_TRIANGLES, num_triangles_[current_mesh_] * 3,
+                   GL_UNSIGNED_INT, 0);
   }
-  glBindVertexArray(vaos_[current_mesh_]);
-  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebos_[current_mesh_]);
-  glBindBuffer(GL_ARRAY_BUFFER, vbos_[current_mesh_]);
-  glDrawElements(GL_TRIANGLES, num_triangles_[current_mesh_] * 3,
-                 GL_UNSIGNED_INT, 0);
   glfwSwapBuffers(window_);
   glfwPollEvents();
   glViewport(0, 0, width_, height_);
@@ -963,7 +1052,8 @@ void OpenGLContext::RenderToBufferInternal(void* buffer, const int& format,
     CHECK(CreateRenderBuffer(datatype, format));
   }
   CHECK(current_program_ >= 0) << "Did not call UseShader!";
-  CHECK(current_mesh_ >= 0) << "Did not call BindMesh!";
+  CHECK(current_mesh_ >= 0 || !using_projection_matrix_[current_program_])
+      << "Did not call BindMesh!";
   glBindFramebuffer(GL_FRAMEBUFFER, output_buffers_[current_program_]);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
   if (using_projection_matrix_[current_program_]) {
@@ -971,15 +1061,22 @@ void OpenGLContext::RenderToBufferInternal(void* buffer, const int& format,
     glCullFace(GL_FRONT);
     glUniformMatrix4fv(mvp_location_, 1, GL_FALSE,
                        (const GLfloat*)projection_.data());
+    glUseProgram(programs_[current_program_]);
+    glBindVertexArray(vaos_[current_mesh_]);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebos_[current_mesh_]);
+    glBindBuffer(GL_ARRAY_BUFFER, vbos_[current_mesh_]);
+    glDrawElements(GL_TRIANGLES, num_triangles_[current_mesh_] * 3,
+                   GL_UNSIGNED_INT, 0);
   } else {
     UploadShaderUniform(-1.0f, "negative");
+    glCullFace(GL_FRONT);
+    glUseProgram(programs_[current_program_]);
+    glBindVertexArray(vaos_[fullscreen_triangle_mesh_]);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebos_[fullscreen_triangle_mesh_]);
+    glBindBuffer(GL_ARRAY_BUFFER, vbos_[fullscreen_triangle_mesh_]);
+    glDrawElements(GL_TRIANGLES, num_triangles_[fullscreen_triangle_mesh_] * 3,
+                   GL_UNSIGNED_INT, 0);
   }
-  glUseProgram(programs_[current_program_]);
-  glBindVertexArray(vaos_[current_mesh_]);
-  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebos_[current_mesh_]);
-  glBindBuffer(GL_ARRAY_BUFFER, vbos_[current_mesh_]);
-  glDrawElements(GL_TRIANGLES, num_triangles_[current_mesh_] * 3,
-                 GL_UNSIGNED_INT, 0);
   glReadBuffer(GL_COLOR_ATTACHMENT0);
   glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo_id_);
   glReadPixels(0, 0, width_, height_, format, datatype, 0);
@@ -996,7 +1093,9 @@ void OpenGLContext::RenderToBufferInternal(void* buffer, const int& format,
     glCullFace(GL_BACK);
   } else {
     UploadShaderUniform(1.0f, "negative");
+    glCullFace(GL_BACK);
   }
+  glFinish();
   CheckForOpenGLErrors();
 }
 
@@ -1007,44 +1106,67 @@ void OpenGLContext::RenderToImage(TriangleIdMap* array) {
 
 void OpenGLContext::RenderToImage(DepthMap* depth) {
   glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-  RenderToBufferInternal((void*)depth->Depth().data, GL_RED, GL_FLOAT);
+  if (depth->Cols() != width_ || depth->Rows() != height_) {
+    depth->Resize(height_, width_);
+  }
+  RenderToBufferInternal((void*)depth->MutableDepth()->data, GL_RED, GL_FLOAT);
 }
 
 void OpenGLContext::RenderToImage(cv::Mat* image) {
+  // TODO(holynski): Account for non-even resolution images
   glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+  int intended_width = width_;
+  int intended_height = height_;
+  if (width_ % 2 != 0 || height_ % 2 != 0) {
+    SetViewportSize(width_ - (width_ % 2), height_ - (height_ % 2));
+  }
   if (image->cols != width_ || image->rows != height_) {
     *image = cv::Mat(height_, width_, image->type());
   }
 
+  unsigned char mat_type = image->type() & CV_MAT_DEPTH_MASK;
+  GLint datatype;
+  switch (mat_type) {
+    case CV_8U:
+      datatype = GL_UNSIGNED_BYTE;
+      break;
+    case CV_32F:
+      datatype = GL_FLOAT;
+      break;
+    default:
+      LOG(FATAL) << "Mat type not supported.";
+  }
+
   switch (image->channels()) {
     case 1:
-      CHECK(false);
-      RenderToBufferInternal((void*)image->data, GL_RED, GL_UNSIGNED_BYTE);
+      RenderToBufferInternal((void*)image->data, GL_RED, datatype);
       break;
     case 2:
       CHECK(false);
-      RenderToBufferInternal((void*)image->data, GL_RG, GL_UNSIGNED_BYTE);
+      RenderToBufferInternal((void*)image->data, GL_RG, datatype);
       break;
     case 3:
-      RenderToBufferInternal((void*)image->data, GL_RGB, GL_UNSIGNED_BYTE);
+      RenderToBufferInternal((void*)image->data, GL_RGB, datatype);
       break;
     case 4:
       CHECK(false);
-      RenderToBufferInternal((void*)image->data, GL_RGBA, GL_UNSIGNED_BYTE);
+      RenderToBufferInternal((void*)image->data, GL_RGBA, datatype);
       break;
     default:
       LOG(FATAL) << "Current rendering only supports 1-4 image channels. You "
                     "provided "
                  << image->channels() << ".";
   }
+  SetViewportSize(intended_width, intended_height);
+  cv::resize(*image, *image, cv::Size(width_, height_));
 }
 
 bool OpenGLContext::RenderToTexture(const std::string& name,
                                     const int shader_id) {
-
   glfwMakeContextCurrent(window_);
   CHECK(current_program_ >= 0) << "Did not call UseShader!";
-  CHECK(current_mesh_ >= 0) << "Did not call BindMesh!";
+  CHECK(current_mesh_ >= 0 || !using_projection_matrix_[current_program_])
+      << "Did not call BindMesh!";
 
   // Create a texture
   if (textures_.count(name) < 1) {
@@ -1056,12 +1178,13 @@ bool OpenGLContext::RenderToTexture(const std::string& name,
   glActiveTexture(GL_TEXTURE4 + textures_opengl_[name]);
   GLuint tex = textures_[name];
   glBindTexture(GL_TEXTURE_2D, tex);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
   glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, width_, height_, 0, GL_RGB,
                GL_UNSIGNED_BYTE, NULL);
+  CheckForOpenGLErrors();
 
   // Create a framebuffer
   if (texture_framebuffers_.count(name) < 1) {
@@ -1093,23 +1216,31 @@ bool OpenGLContext::RenderToTexture(const std::string& name,
   if (using_projection_matrix_[current_program_]) {
     glUniformMatrix4fv(mvp_location_, 1, GL_FALSE,
                        (const GLfloat*)projection_.data());
+    glCullFace(GL_BACK);
+    glUseProgram(programs_[current_program_]);
+    glBindVertexArray(vaos_[current_mesh_]);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebos_[current_mesh_]);
+    glBindBuffer(GL_ARRAY_BUFFER, vbos_[current_mesh_]);
+    glDrawElements(GL_TRIANGLES, num_triangles_[current_mesh_] * 3,
+                   GL_UNSIGNED_INT, 0);
   } else {
     UploadShaderUniform(-1.0f, "negative");
+    glCullFace(GL_BACK);
+    glUseProgram(programs_[current_program_]);
+    glBindVertexArray(vaos_[fullscreen_triangle_mesh_]);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebos_[fullscreen_triangle_mesh_]);
+    glBindBuffer(GL_ARRAY_BUFFER, vbos_[fullscreen_triangle_mesh_]);
+    glDrawElements(GL_TRIANGLES, num_triangles_[fullscreen_triangle_mesh_] * 3,
+                   GL_UNSIGNED_INT, 0);
   }
-  glUseProgram(programs_[current_program_]);
-  glBindVertexArray(vaos_[current_mesh_]);
-  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebos_[current_mesh_]);
-  glBindBuffer(GL_ARRAY_BUFFER, vbos_[current_mesh_]);
-  glDrawElements(GL_TRIANGLES, num_triangles_[current_mesh_] * 3,
-                 GL_UNSIGNED_INT, 0);
   CheckForOpenGLErrors();
 
   // Get the location of the texture in the other shader
-  glUseProgram(programs_[shader_id]);
+  glUseProgram(programs_[shader_id >= 0 ? shader_id : current_program_]);
   glActiveTexture(GL_TEXTURE4 + textures_opengl_[name]);
   glBindTexture(GL_TEXTURE_2D, tex);
-  GLint texture_location =
-      glGetUniformLocation(programs_[shader_id], name.c_str());
+  GLint texture_location = glGetUniformLocation(
+      programs_[shader_id >= 0 ? shader_id : current_program_], name.c_str());
   // Upload the texture
   glUniform1i(texture_location, 4 + textures_opengl_[name]);
 

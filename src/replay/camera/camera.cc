@@ -5,9 +5,17 @@
 
 namespace replay {
 
-Camera::Camera() : type_(CameraType::PINHOLE) {}
+Camera::Camera() : type_(CameraType::PINHOLE), image_size_(0,0), exposure_(1,1,1) {}
 
 CameraType Camera::GetType() const { return type_; }
+
+const std::string& Camera::GetName() const {
+  return name_;
+}
+
+void Camera::SetName(const std::string& name) {
+  name_ = name;
+}
 
 Eigen::Vector2d Camera::GetFocalLength() const {
   return Eigen::Vector2d(intrinsics_(0, 0), intrinsics_(1, 1));
@@ -29,14 +37,27 @@ const std::vector<double>& Camera::GetDistortionCoeffs() const {
   return distortion_coeffs_;
 }
 
+const Eigen::Vector3f Camera::GetExposure() const {
+  return exposure_;
+}
+
 void Camera::SetFocalLength(const Eigen::Vector2d& focal) {
-  intrinsics_(0, 0) = focal[0];
-  intrinsics_(1, 1) = focal[1];
+  const bool in_pixels = focal[0] > 10 && image_size_.norm() != 0;
+  if (!in_pixels && focal[0]) {
+    LOG(WARNING)
+        << "Your focal length is in pixels. Make sure to set the image size!";
+  }
+  intrinsics_(0, 0) = focal[0] / (in_pixels ? image_size_[0] : 1.0);
+  intrinsics_(1, 1) = focal[1] / (in_pixels ? image_size_[1] : 1.0);
 }
 
 void Camera::SetPrincipalPoint(const Eigen::Vector2d& principal) {
-  intrinsics_(0, 2) = principal[0];
-  intrinsics_(1, 2) = principal[1];
+  const bool in_pixels = principal[0] > 10;
+  if (image_size_.norm() == 0) {
+    LOG(FATAL) << "Must set image size before principal point in pixels!";
+  }
+  intrinsics_(0, 2) = principal[0] / (in_pixels ? image_size_[0] : 1.0);
+  intrinsics_(1, 2) = principal[1] / (in_pixels ? image_size_[1] : 1.0);
 }
 
 void Camera::SetSkew(const double skew) { intrinsics_(0, 1) = skew; }
@@ -47,6 +68,17 @@ void Camera::SetIntrinsicsMatrix(const Eigen::Matrix3d& intrinsics) {
 
 void Camera::SetImageSize(const Eigen::Vector2i& image_size) {
   image_size_ = image_size;
+  for (int row = 0; row < 2; row ++) {
+    for (int col = 0; col < 3; col ++) {
+      if (intrinsics_(row, col) > 10.0) {
+        intrinsics_(row, col) /= static_cast<double>(image_size_(row));
+      }
+    }
+  }
+}
+
+void Camera::SetExposure(const Eigen::Vector3f& exposure) {
+  exposure_ = exposure;
 }
 
 Eigen::Matrix3d Camera::GetRotation() const {
@@ -58,7 +90,7 @@ Eigen::Vector3d Camera::GetTranslation() const {
 }
 
 Eigen::Quaterniond Camera::GetOrientation() const {
-  return Eigen::Quaterniond(Eigen::Matrix3d(extrinsics_.block(0, 0, 3, 3)));
+  return Eigen::Quaterniond(Eigen::Matrix3d(extrinsics_.block(0, 0, 3, 3))).inverse();
 }
 
 Eigen::Vector3d Camera::GetLookAt() const {
@@ -84,11 +116,11 @@ void Camera::SetRotation(const Eigen::Matrix3d& rotation) {
 }
 
 void Camera::SetOrientation(const Eigen::Quaterniond& orientation) {
-  extrinsics_.block(0, 0, 3, 3) = orientation.toRotationMatrix();
+  extrinsics_.block(0, 0, 3, 3) = orientation.toRotationMatrix().inverse();
 }
 
 void Camera::SetTranslation(const Eigen::Vector3d& translation) {
-  extrinsics_.block(0, 3, 1, 3) = translation;
+  extrinsics_.block(0, 3, 3, 1) = translation;
 }
 
 void Camera::SetOrientationFromLookAtUpVector(const Eigen::Vector3d& lookat,

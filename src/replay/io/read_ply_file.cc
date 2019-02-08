@@ -27,6 +27,10 @@ bool ReadPLYFile(const std::string& filename, Mesh* mesh,
   std::vector<float> uvs;
   ply_file.request_properties_from_element("vertex", {"texture_u", "texture_v"},
                                            uvs);
+
+  std::vector<uint8_t> color;
+  ply_file.request_properties_from_element("vertex", {"red", "green", "blue"},
+                                           color);
   ply_file.read(stream);
   for (int i = 0; i < vertex_stream.size(); i += 3) {
     mesh->AddVertex(Eigen::Vector3f(vertex_stream[i], vertex_stream[i + 1],
@@ -37,6 +41,9 @@ bool ReadPLYFile(const std::string& filename, Mesh* mesh,
   }
   for (int i = 0; i < uvs.size(); i += 2) {
     mesh->SetVertexUV(i / 2, uvs[i], 1.f - uvs[i + 1]);
+  }
+  for (int i = 0; i < color.size(); i += 3) {
+    mesh->SetVertexColor(i / 3, Eigen::Vector3f(color[i], color[i+1], color[i+2]) / 255.0);
   }
   stream.close();
 

@@ -184,6 +184,14 @@ void Reconstruction::SaveTrajectoryMesh(const std::string& filename) const {
   mesh.Save(filename);
 }
 
+const Camera& Reconstruction::GetCamera(const int index) const {
+  return *cameras_.at(index);
+}
+
+Camera* Reconstruction::GetCameraMutable(const int index) {
+  return cameras_.at(index);
+}
+
 std::vector<Camera*> Reconstruction::FindSimilarViewpoints(const Camera* camera,
                                            const int angle_threshold) const {
   std::vector<Camera*> cameras;
@@ -194,6 +202,85 @@ std::vector<Camera*> Reconstruction::FindSimilarViewpoints(const Camera* camera,
     }
   }
   return cameras;
+}
+
+Mesh Reconstruction::CreateFrustumMesh() const {
+  Mesh mesh;
+  int i = 0; 
+  for (const auto camera : cameras_) {
+    i ++;
+    Eigen::Vector3d position = camera->GetPosition();
+
+    Eigen::Vector3f up = camera->GetUpVector().cast<float>();
+    Eigen::Vector3f left = camera->GetRightVector().cast<float>();
+    Eigen::Vector3f fwd = camera->GetLookAt().cast<float>();
+    VertexId center = mesh.AddVertex(position.cast<float>());
+
+    VertexId top_left =
+        mesh.AddVertex(position.cast<float>() + (up / 2) + (left / 2) + fwd);
+    VertexId bottom_left =
+        mesh.AddVertex(position.cast<float>() - (up / 2) + (left / 2) + fwd);
+    VertexId top_right =
+        mesh.AddVertex(position.cast<float>() + (up / 2) - (left / 2) + fwd);
+    VertexId bottom_right =
+        mesh.AddVertex(position.cast<float>() - (up / 2) - (left / 2) + fwd);
+
+    if (i % 10 == 0) {
+      VertexId arrow_base_left =
+          mesh.AddVertex(position.cast<float>() + fwd + (up / 2) - (left / 8));
+      VertexId arrow_base_right =
+          mesh.AddVertex(position.cast<float>() + fwd + (up / 2) + (left / 8));
+      VertexId arrow_tip =
+          mesh.AddVertex(position.cast<float>() + fwd + (up * 0.75f));
+      VertexId arrow_edge_c_left =
+          mesh.AddVertex(position.cast<float>() + fwd + (up * 0.65f) - (left / 8));
+      VertexId arrow_edge_c_right =
+          mesh.AddVertex(position.cast<float>() + fwd + (up * 0.65f) + (left / 8));
+      VertexId arrow_edge_left =
+          mesh.AddVertex(position.cast<float>() + fwd + (up * 0.65f) - (left / 6));
+      VertexId arrow_edge_right =
+          mesh.AddVertex(position.cast<float>() + fwd + (up * 0.65f) + (left / 6));
+      mesh.AddTriangleFace(arrow_base_left, arrow_edge_c_left,
+                           arrow_edge_c_right);
+      mesh.AddTriangleFace(arrow_edge_c_right, arrow_base_right,
+                           arrow_base_left);
+      mesh.AddTriangleFace(arrow_edge_c_left, arrow_edge_left, arrow_tip);
+      mesh.AddTriangleFace(arrow_edge_c_right, arrow_edge_c_left, arrow_tip);
+      mesh.AddTriangleFace(arrow_edge_right, arrow_edge_c_right, arrow_tip);
+
+      VertexId rarrow_base_left =
+          mesh.AddVertex(position.cast<float>() + fwd + (-left / 2) - (up/ 8));
+      VertexId rarrow_base_right =
+          mesh.AddVertex(position.cast<float>() + fwd + (-left / 2) + (up / 8));
+      VertexId rarrow_tip =
+          mesh.AddVertex(position.cast<float>() + fwd + (-left * 0.75f));
+      VertexId rarrow_edge_c_left =
+          mesh.AddVertex(position.cast<float>() + fwd + (-left * 0.65f) - (up / 8));
+      VertexId rarrow_edge_c_right =
+          mesh.AddVertex(position.cast<float>() + fwd + (-left * 0.65f) + (up / 8));
+      VertexId rarrow_edge_left =
+          mesh.AddVertex(position.cast<float>() + fwd + (-left * 0.65f) - (up / 6));
+      VertexId rarrow_edge_right =
+          mesh.AddVertex(position.cast<float>() + fwd + (-left * 0.65f) + (up / 6));
+      mesh.AddTriangleFace(rarrow_base_left, rarrow_edge_c_left,
+                           rarrow_edge_c_right);
+      mesh.AddTriangleFace(rarrow_edge_c_right, rarrow_base_right,
+                           rarrow_base_left);
+      mesh.AddTriangleFace(rarrow_edge_c_left, rarrow_edge_left, rarrow_tip);
+      mesh.AddTriangleFace(rarrow_edge_c_right, rarrow_edge_c_left, rarrow_tip);
+      mesh.AddTriangleFace(rarrow_edge_right, rarrow_edge_c_right, rarrow_tip);
+      mesh.AddTriangleFace(center, top_right, top_left);
+      mesh.AddTriangleFace(center, top_right, top_left);
+      mesh.AddTriangleFace(center, bottom_right, top_right);
+      mesh.AddTriangleFace(center, bottom_left, bottom_right);
+      mesh.AddTriangleFace(center, top_left, bottom_left);
+      mesh.AddTriangleFace(top_right, top_left, bottom_left);
+      mesh.AddTriangleFace(bottom_left, bottom_right, top_right);
+      mesh.AddTriangleFace(bottom_left, bottom_right, top_right);
+    }
+  }
+
+  return mesh;
 }
 
 }  // namespace replay

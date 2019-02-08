@@ -52,8 +52,13 @@ DepthMap::DepthMap(const int rows, const int cols) {
 }
 
 void DepthMap::Resize(int rows, int cols) {
-  depth_ = cv::Mat1f(rows, cols, 0.0f);
-  confidence_ = cv::Mat1f(rows, cols, 0.0f);
+  if (!depth_.empty()) {
+    cv::resize(depth_, depth_, cv::Size(cols, rows));
+    cv::resize(confidence_, confidence_, cv::Size(cols, rows));
+  } else {
+    depth_ = cv::Mat1f(rows, cols, 0.0f);
+    confidence_ = cv::Mat1f(rows, cols, 0.0f);
+  }
 }
 
 void DepthMap::ResizeAndInterpolate(int rows, int cols) {
@@ -154,15 +159,16 @@ void DepthMap::WriteDepthAsRGB(const std::string& output_file,
     min_depth = static_cast<float>(min);
     max_depth = static_cast<float>(max);
   }
+  LOG(INFO) << "Depth map has min/max: "  << min_depth << ", " << max_depth;
 
   // Iterate over the pixels and convert each depth value to the RGB value.
   for (int i = 0; i < depth_.rows * depth_.cols; i++) {
     // Extract color given the depth value.
     const Eigen::Vector3d color =
         GetRGBFromGray(depth_(i), min_depth, max_depth);
-    rgb(i)[0] = color(2);
-    rgb(i)[1] = color(1);
-    rgb(i)[2] = color(0);
+    rgb(i)[0] = color(2) * 255;
+    rgb(i)[1] = color(1) * 255;
+    rgb(i)[2] = color(0) * 255;
   }
 
   cv::imwrite(output_file, rgb);

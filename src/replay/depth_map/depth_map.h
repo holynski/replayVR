@@ -1,5 +1,4 @@
-#ifndef REPLAY_DEPTH_MAP_DEPTH_MAP_H_
-#define REPLAY_DEPTH_MAP_DEPTH_MAP_H_
+#pragma once
 
 #include <Eigen/Core>
 #include <cereal/access.hpp>
@@ -88,5 +87,3 @@ class DepthMap {
 };
 
 }  // namespace replay
-
-#endif  // REPLAY_DEPTH_MAP_DEPTH_MAP_H_

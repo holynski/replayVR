@@ -15,6 +15,7 @@ bool WritePLYFile(const std::string& filename, const Mesh& mesh,
   std::ostringstream stream;
   // Return false if the file cannot be opened for writing.
   if (!file.is_open()) {
+    LOG(ERROR) << "File (" << filename << ") couldn't be opened.";
     return false;
   }
   tinyply::PlyFile ply_file;

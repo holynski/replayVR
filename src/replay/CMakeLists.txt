@@ -17,26 +17,48 @@ set(REPLAY_SRC
   camera/fisheye_camera.cc
   camera/pinhole_camera.cc
   depth_map/depth_map.cc
+  flow/optical_flow_aligner.cc
+  flow/optical_flow_calculator.cc
+  flow/visualization.cc
+  image/fuzzy_difference.cc
   io/byte_stream_reader.cc
+  io/read_bundler.cc
+  io/read_capreal.cc
   io/read_ply_file.cc
   io/video_reader.cc
   io/write_ply_file.cc
   io/zlib_decompressor.cc
   mesh/mesh.cc
+  multiview/exposure_alignment.cc
+  multiview/plane_sweep.cc
+  rendering/depth_map_renderer.cc
+  rendering/equirect_reprojector.cc
+  rendering/image_based_renderer.cc
+  rendering/image_reprojector.cc
+  rendering/max_compositor_sequential.cc
+  rendering/min_compositor.cc
+  rendering/min_compositor_sequential.cc
+  rendering/model_renderer.cc
   rendering/opengl_context.cc
   rendering/stereo_video_angular_renderer.cc
-  rendering/vr180_renderer.cc
-  rendering/vr180_undistorter.cc
   rendering/vr_context.cc
   sfm/calibrate_from_mesh.cc
   sfm/reconstruction.cc
   sfm/tracked_point.cc
   sfm/video_tracker.cc
+  util/depth_cache.cc
   util/filesystem.cc
+  util/image.cc
+  util/image_cache.cc
   util/lru_cache.cc
   util/matrix_utils.cc
   util/strings.cc
   util/timer.cc
+  )
+
+set(VR180_SRC
+  rendering/vr180_renderer.cc
+  rendering/vr180_undistorter.cc
   vr_180/mesh_projection_parser.cc
   vr_180/vr_180_video_reader.cc
   )
@@ -50,6 +72,7 @@ set(REPLAY_LIBRARY_DEPENDENCIES
   ${CGAL_LIBRARIES}
   ${CGAL_LIBRARIES}
   ${FFMPEG_LIBRARIES}
+  ${FREEIMAGE_LIBRARIES}
   ${GFLAGS_LIBRARIES}
   ${GLOG_LIBRARIES}
   ${GL_LIBRARIES}
