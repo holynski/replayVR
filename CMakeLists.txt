@@ -229,6 +229,7 @@ include_directories(
   libraries
   ${cereal_SOURCE_DIR}
   ${cereal_SOURCE_DIR}/include
+  ${gco_SOURCE_DIR}
   ${gtest_SOURCE_DIR}/include
   ${gtest_SOURCE_DIR}
   ${tinyply_SOURCE_DIR}
@@ -246,3 +247,10 @@ optimizecompilerflags()
 
 add_subdirectory(src/replay)
 add_subdirectory(applications)
+
+IF( EXISTS "${CMAKE_CURRENT_BINARY_DIR}/compile_commands.json" )
+  EXECUTE_PROCESS( COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    ${CMAKE_CURRENT_BINARY_DIR}/compile_commands.json
+    ${CMAKE_CURRENT_SOURCE_DIR}/compile_commands.json
+  )
+ENDIF()

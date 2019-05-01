@@ -175,7 +175,7 @@ int main(int argc, char* argv[]) {
   float window_depth = 0;
   cv::Mat1b valid_pixels1(center_view.GetImageSize()[1],
                           center_view.GetImageSize()[0], 255);
-  cv::Mat1b valid_pixels1(center_view2.GetImageSize()[1],
+  cv::Mat1b valid_pixels2(center_view2.GetImageSize()[1],
                           center_view2.GetImageSize()[0], 255);
   if (window_mesh_id >= 0) {
     replay::DepthMap map;
@@ -186,8 +186,10 @@ int main(int argc, char* argv[]) {
     depth_renderer.GetDepthMap(center_view2, &map);
     valid_pixels2 = map.Depth() > 0;
   } else {
-//add support for no windows
-//so we can look at the belgrave results without the masks
+    replay::DepthMap map;
+    context->BindMesh(mesh_id);
+    depth_renderer.GetDepthMap(center_view, &map);
+    window_depth = cv::mean(map.Depth(), map.Depth() > 0)[0];
   }
 
   replay::Camera* maxc_view = center_view.Clone();
@@ -246,23 +248,23 @@ int main(int argc, char* argv[]) {
       context->BindMesh(window_mesh_id);
       depth_renderer.GetDepthMap(camera, &map);
       valid_reflections = map.Depth() > 0;
-      cv::Mat3b reprojected_reflection;
-
-      cv::Mat3b reflection =
-          cv::imread(FLAGS_output_directory + "/res_minc_" + camera.GetName());
-      if (!valid_reflections.empty()) {
-        reflection.setTo(0, valid_reflections == 0);
-      }
-      context->BindMesh(reflection_mesh_id);
-      image_reprojector.SetImage(reflection);
-      image_reprojector.SetSourceCamera(camera);
-      image_reprojector.Reproject(*maxc_view, &reprojected_reflection);
-
-      cv::imwrite(FLAGS_output_directory + "/global_ref_" + camera.GetName(),
-                  reprojected_reflection);
-
-      max_reflection = cv::max(max_reflection, reprojected_reflection);
     }
+    cv::Mat3b reprojected_reflection;
+
+    cv::Mat3b reflection =
+        cv::imread(FLAGS_output_directory + "/res_minc_" + camera.GetName());
+    if (!valid_reflections.empty()) {
+      reflection.setTo(0, valid_reflections == 0);
+    }
+    context->BindMesh(reflection_mesh_id);
+    image_reprojector.SetImage(reflection);
+    image_reprojector.SetSourceCamera(camera);
+    image_reprojector.Reproject(*maxc_view, &reprojected_reflection);
+
+    cv::imwrite(FLAGS_output_directory + "/global_ref_" + camera.GetName(),
+                reprojected_reflection);
+
+    max_reflection = cv::max(max_reflection, reprojected_reflection);
     k++;
   }
   k = 0;
@@ -279,18 +281,18 @@ int main(int argc, char* argv[]) {
       context->BindMesh(window_mesh_id);
       depth_renderer.GetDepthMap(camera, &map);
       valid_reflections = map.Depth() > 0;
-      if (!valid_reflections.empty()) {
-        reprojected_reflection.setTo(0, valid_reflections == 0);
-      }
-      cv::Mat3b diffuse =
-          cv::imread(FLAGS_output_directory + "/diffuse_" + camera.GetName());
-      cv::Mat3b minc =
-          cv::imread(FLAGS_output_directory + "/minc_" + camera.GetName());
-      cv::imwrite(FLAGS_output_directory + "/mcomposed_" + camera.GetName(),
-                  reprojected_reflection + minc);
-      cv::imwrite(FLAGS_output_directory + "/composed_" + camera.GetName(),
-                  reprojected_reflection + diffuse);
     }
+    if (!valid_reflections.empty()) {
+      reprojected_reflection.setTo(0, valid_reflections == 0);
+    }
+    cv::Mat3b diffuse =
+        cv::imread(FLAGS_output_directory + "/diffuse_" + camera.GetName());
+    cv::Mat3b minc =
+        cv::imread(FLAGS_output_directory + "/minc_" + camera.GetName());
+    cv::imwrite(FLAGS_output_directory + "/mcomposed_" + camera.GetName(),
+                reprojected_reflection + minc);
+    cv::imwrite(FLAGS_output_directory + "/composed_" + camera.GetName(),
+                reprojected_reflection + diffuse);
   }
   cv::imwrite(FLAGS_output_directory + "/max_reflection.png", max_reflection);
 }

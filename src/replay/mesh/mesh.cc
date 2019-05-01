@@ -23,6 +23,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "replay/camera/camera.h"
 #include "replay/io/read_ply_file.h"
 #include "replay/io/write_ply_file.h"
 #include "replay/third_party/theia/util/map_util.h"
@@ -49,6 +50,112 @@ Mesh Mesh::Plane(const Eigen::Vector3f &center, const Eigen::Vector3f &normal,
   return mesh;
 }
 
+Mesh Mesh::Plane(const Eigen::Vector3f &tl, const Eigen::Vector3f &tr,
+                 const Eigen::Vector3f &bl, const Eigen::Vector3f &br) {
+  Mesh mesh;
+  const VertexId trv = mesh.AddVertex(tr);
+  const VertexId tlv = mesh.AddVertex(tl);
+  const VertexId blv = mesh.AddVertex(bl);
+  const VertexId brv = mesh.AddVertex(br);
+
+  mesh.AddTriangleFace(trv, brv, blv);
+  mesh.AddTriangleFace(blv, tlv, trv);
+  return mesh;
+}
+
+Mesh Mesh::Frustum(const Camera &camera, bool with_arrows) {
+  Mesh mesh;
+  Eigen::Vector3d position = camera.GetPosition();
+
+  Eigen::Vector3f up = camera.GetUpVector().cast<float>();
+  Eigen::Vector3f left = camera.GetRightVector().cast<float>();
+  Eigen::Vector3f fwd = camera.GetLookAt().cast<float>();
+  VertexId center = mesh.AddVertex(position.cast<float>());
+
+  VertexId top_left =
+      mesh.AddVertex(position.cast<float>() + (up / 2) + (left / 2) + fwd);
+  VertexId bottom_left =
+      mesh.AddVertex(position.cast<float>() - (up / 2) + (left / 2) + fwd);
+  VertexId top_right =
+      mesh.AddVertex(position.cast<float>() + (up / 2) - (left / 2) + fwd);
+  VertexId bottom_right =
+      mesh.AddVertex(position.cast<float>() - (up / 2) - (left / 2) + fwd);
+  mesh.SetVertexColor(top_left, Eigen::Vector3f(1, 0, 0));
+  mesh.SetVertexColor(bottom_left, Eigen::Vector3f(1, 0, 0));
+  mesh.SetVertexColor(top_right, Eigen::Vector3f(1, 0, 0));
+  mesh.SetVertexColor(bottom_right, Eigen::Vector3f(1, 0, 0));
+  mesh.SetVertexColor(center, Eigen::Vector3f(1, 0, 0));
+
+  if (with_arrows) {
+    VertexId arrow_base_left =
+        mesh.AddVertex(position.cast<float>() + fwd + (up / 2) - (left / 8));
+    VertexId arrow_base_right =
+        mesh.AddVertex(position.cast<float>() + fwd + (up / 2) + (left / 8));
+    VertexId arrow_tip =
+        mesh.AddVertex(position.cast<float>() + fwd + (up * 0.75f));
+    VertexId arrow_edge_c_left = mesh.AddVertex(position.cast<float>() + fwd +
+                                                (up * 0.65f) - (left / 8));
+    VertexId arrow_edge_c_right = mesh.AddVertex(position.cast<float>() + fwd +
+                                                 (up * 0.65f) + (left / 8));
+    VertexId arrow_edge_left = mesh.AddVertex(position.cast<float>() + fwd +
+                                              (up * 0.65f) - (left / 6));
+    VertexId arrow_edge_right = mesh.AddVertex(position.cast<float>() + fwd +
+                                               (up * 0.65f) + (left / 6));
+    mesh.AddTriangleFace(arrow_base_left, arrow_edge_c_left,
+                         arrow_edge_c_right);
+    mesh.AddTriangleFace(arrow_edge_c_right, arrow_base_right, arrow_base_left);
+    mesh.AddTriangleFace(arrow_edge_c_left, arrow_edge_left, arrow_tip);
+    mesh.AddTriangleFace(arrow_edge_c_right, arrow_edge_c_left, arrow_tip);
+    mesh.AddTriangleFace(arrow_edge_right, arrow_edge_c_right, arrow_tip);
+    mesh.SetVertexColor(arrow_base_left, Eigen::Vector3f(0, 1, 0));
+    mesh.SetVertexColor(arrow_base_right, Eigen::Vector3f(0, 1, 0));
+    mesh.SetVertexColor(arrow_tip, Eigen::Vector3f(0, 1, 0));
+    mesh.SetVertexColor(arrow_edge_c_left, Eigen::Vector3f(0, 1, 0));
+    mesh.SetVertexColor(arrow_edge_c_right, Eigen::Vector3f(0, 1, 0));
+    mesh.SetVertexColor(arrow_edge_left, Eigen::Vector3f(0, 1, 0));
+    mesh.SetVertexColor(arrow_edge_right, Eigen::Vector3f(0, 1, 0));
+
+    VertexId rarrow_base_left =
+        mesh.AddVertex(position.cast<float>() + fwd + (-left / 2) - (up / 8));
+    VertexId rarrow_base_right =
+        mesh.AddVertex(position.cast<float>() + fwd + (-left / 2) + (up / 8));
+    VertexId rarrow_tip =
+        mesh.AddVertex(position.cast<float>() + fwd + (-left * 0.75f));
+    VertexId rarrow_edge_c_left = mesh.AddVertex(position.cast<float>() + fwd +
+                                                 (-left * 0.65f) - (up / 8));
+    VertexId rarrow_edge_c_right = mesh.AddVertex(position.cast<float>() + fwd +
+                                                  (-left * 0.65f) + (up / 8));
+    VertexId rarrow_edge_left = mesh.AddVertex(position.cast<float>() + fwd +
+                                               (-left * 0.65f) - (up / 6));
+    VertexId rarrow_edge_right = mesh.AddVertex(position.cast<float>() + fwd +
+                                                (-left * 0.65f) + (up / 6));
+    mesh.AddTriangleFace(rarrow_base_left, rarrow_edge_c_left,
+                         rarrow_edge_c_right);
+    mesh.AddTriangleFace(rarrow_edge_c_right, rarrow_base_right,
+                         rarrow_base_left);
+    mesh.AddTriangleFace(rarrow_edge_c_left, rarrow_edge_left, rarrow_tip);
+    mesh.AddTriangleFace(rarrow_edge_c_right, rarrow_edge_c_left, rarrow_tip);
+    mesh.AddTriangleFace(rarrow_edge_right, rarrow_edge_c_right, rarrow_tip);
+    mesh.SetVertexColor(rarrow_base_left, Eigen::Vector3f(0, 0, 1));
+    mesh.SetVertexColor(rarrow_base_right, Eigen::Vector3f(0, 0, 1));
+    mesh.SetVertexColor(rarrow_tip, Eigen::Vector3f(0, 0, 1));
+    mesh.SetVertexColor(rarrow_edge_c_left, Eigen::Vector3f(0, 0, 1));
+    mesh.SetVertexColor(rarrow_edge_c_right, Eigen::Vector3f(0, 0, 1));
+    mesh.SetVertexColor(rarrow_edge_left, Eigen::Vector3f(0, 0, 1));
+    mesh.SetVertexColor(rarrow_edge_right, Eigen::Vector3f(0, 0, 1));
+  }
+
+  mesh.AddTriangleFace(center, top_right, top_left);
+  mesh.AddTriangleFace(center, top_right, top_left);
+  mesh.AddTriangleFace(center, bottom_right, top_right);
+  mesh.AddTriangleFace(center, bottom_left, bottom_right);
+  mesh.AddTriangleFace(center, top_left, bottom_left);
+  mesh.AddTriangleFace(top_right, top_left, bottom_left);
+  mesh.AddTriangleFace(bottom_left, bottom_right, top_right);
+  mesh.AddTriangleFace(bottom_left, bottom_right, top_right);
+  return mesh;
+}
+
 int Mesh::NumVertices() const { return mesh_.number_of_vertices(); }
 
 int Mesh::NumTriangleFaces() const { return mesh_.number_of_faces(); }
@@ -72,6 +179,9 @@ void Mesh::Append(const Mesh &rhs_mesh) {
     rhs_vertex_to_lhs[i] = AddVertex(rhs_mesh.VertexPosition(i));
     if (rhs_mesh.HasUVs() && HasUVs()) {
       SetVertexUV(rhs_vertex_to_lhs[i], rhs_mesh.VertexUV(i));
+    }
+    if (rhs_mesh.HasColors()) {
+      SetVertexColor(rhs_vertex_to_lhs[i], rhs_mesh.VertexColor(i));
     }
   }
   for (int i = 0; i < rhs_mesh.NumTriangleFaces(); i++) {
@@ -203,6 +313,49 @@ float Mesh::MeanEdgeLength() const {
     mean_edge_length += CGAL::sqrt(CGAL::squared_distance(p, q));
   }
   return mean_edge_length / static_cast<float>(mesh_.number_of_edges());
+}
+
+Eigen::Vector3f Mesh::GetMedianNormal() const {
+  CHECK_GT(NumTriangleFaces(), 0);
+  std::vector<float> normals_x;
+  std::vector<float> normals_y;
+  std::vector<float> normals_z;
+  normals_x.reserve(NumTriangleFaces());
+  normals_y.reserve(NumTriangleFaces());
+  normals_z.reserve(NumTriangleFaces());
+  for (const auto &face_index : mesh_.faces()) {
+    Eigen::Vector3f normal = ComputeFaceNormal(face_index);
+    normals_x[face_index] = normal.x();
+    normals_y[face_index] = normal.y();
+    normals_z[face_index] = normal.z();
+  }
+  std::sort(normals_x.begin(), normals_x.end());
+  std::sort(normals_y.begin(), normals_y.end());
+  std::sort(normals_z.begin(), normals_z.end());
+  const int middle_index = normals_x.size() / 2;
+
+  Eigen::Vector3f median_normal(normals_x[middle_index],
+                                normals_y[middle_index],
+                                normals_z[middle_index]);
+  median_normal.normalize();
+
+  return median_normal;
+}
+
+void Mesh::GetBoundingBox(Eigen::Vector3f *min, Eigen::Vector3f *max) const {
+  CHECK_NOTNULL(min);
+  CHECK_NOTNULL(max);
+  *min = Eigen::Vector3f(FLT_MAX, FLT_MAX, FLT_MAX);
+  *max = Eigen::Vector3f(-FLT_MAX, -FLT_MAX, -FLT_MAX);
+  for (const auto &vertex_index : mesh_.vertices()) {
+    const auto &position = VertexPosition(vertex_index);
+    min->x() = std::min(min->x(), position.x());
+    min->y() = std::min(min->y(), position.y());
+    min->z() = std::min(min->z(), position.z());
+    max->x() = std::max(max->x(), position.x());
+    max->y() = std::max(max->y(), position.y());
+    max->z() = std::max(max->z(), position.z());
+  }
 }
 
 Eigen::Vector3f Mesh::ComputeFaceNormal(const TriangleFaceId face_id) const {
@@ -341,6 +494,14 @@ Eigen::Vector2f Mesh::VertexUV(const VertexId &vertex) const {
   CHECK(has_uvs_) << "Mesh does not have UVs!";
   return CGALPoint2ToEigenVector2f(
       mesh_.property_map<VertexIndex, CGALPoint2>("uv")
+          .first[VertexIndex(vertex)]);
+}
+
+Eigen::Vector3f Mesh::VertexColor(const VertexId &vertex) const {
+  CHECK(mesh_.is_valid(VertexIndex(vertex)));
+  CHECK(has_colors_) << "Mesh does not have color!";
+  return CGALPoint3ToEigenVector3f(
+      mesh_.property_map<VertexIndex, CGALPoint3>("color")
           .first[VertexIndex(vertex)]);
 }
 

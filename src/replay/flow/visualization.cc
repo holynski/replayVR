@@ -78,6 +78,7 @@ cv::Mat3b FlowToColor(const cv::Mat2f& flow) {
   if (max_radius <= 0) {
     max_radius = 1;
   }
+  LOG(ERROR) << "Max radius: " << max_radius;
   for (int row = 0; row < flow.rows; row++) {
     for (int col = 0; col < flow.cols; col++) {
       const cv::Vec2f& flow_value = flow(row, col);

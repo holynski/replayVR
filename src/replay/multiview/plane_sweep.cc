@@ -1,10 +1,103 @@
 #include "replay/multiview/plane_sweep.h"
+#include "replay/image/image_stack_analyzer.h"
+#include "replay/io/read_float_image.h"
+#include "replay/io/write_float_image.h"
+#include "replay/util/filesystem.h"
+#include "replay/util/timer.h"
 
 namespace replay {
 
-PlaneSweep::PlaneSweep(std::shared_ptr<OpenGLContext> context)
-    : context_(context), sad_(context_), reprojector_(context_) {
+PlaneSweep::PlaneSweep(std::shared_ptr<OpenGLContext> context,
+                       const std::string& cache_directory)
+    : context_(context),
+      sad_(context_),
+      reprojector_(context_),
+      cache_directory_(cache_directory) {
   CHECK(context->IsInitialized()) << "Initialize renderer first!";
+}
+
+void PlaneSweep::AddView(const Camera& camera, const cv::Mat3b& image,
+                         const cv::Mat1b& valid_pixels) {
+  cameras_.push_back(&camera);
+  images_.push_back(image);
+  masks_.push_back(valid_pixels);
+}
+
+PlaneSweepResult PlaneSweep::Sweep(const Camera& viewpoint,
+                                   const float min_depth, const float max_depth,
+                                   const int num_steps) {
+  float step_size = (max_depth - min_depth) / num_steps;
+  const Eigen::Vector3f plane_normal =
+      viewpoint.GetLookAt().cast<float>().normalized();
+  std::unordered_map<float, cv::Mat1f> cost_volume;
+
+  int step_id = 0;
+  PlaneSweepResult result;
+  for (float depth = min_depth; depth <= max_depth; depth += step_size) {
+    step_id++;
+    LOG(INFO) << "Sweeping plane (" << step_id << "/" << num_steps << ").";
+    LOG(ERROR) << "Estimating cost for depth " << depth << " in range ["
+               << min_depth << "," << max_depth << "]";
+    const float plane_d =
+        (viewpoint.GetPosition().cast<float>() + plane_normal * depth)
+            .dot(plane_normal);
+    Eigen::Vector4f plane(plane_normal[0], plane_normal[1], plane_normal[2],
+                          plane_d);
+
+    Mesh plane_mesh = Mesh::Plane(plane.cast<float>().head<3>() * plane[3], plane.cast<float>().head<3>(),
+                                  Eigen::Vector2f(5000, 5000));
+    const int plane_id = context_->UploadMesh(plane_mesh);
+    context_->BindMesh(plane_id);
+
+    context_->BindMesh(plane_id);
+    result.cost_volume[depth] = ReadFloatImage(
+        JoinPath(cache_directory_, "cost_" + std::to_string(depth) + ".bin"));
+    result.mean_images[depth] = cv::imread(
+        JoinPath(cache_directory_, "mean_" + std::to_string(depth) + ".png"));
+
+    result.depths.push_back(depth);
+    result.mesh_ids[depth] = plane_id;
+    result.meshes[depth] = plane_mesh;
+    if (result.cost_volume[depth].empty()) {
+      SimpleTimer timer;
+      ImageStackAnalyzer::Options options;
+      options.compute_max = false;
+      options.compute_min = false;
+      options.compute_median = false;
+      ImageStackAnalyzer layer_statistics(options);
+      for (int cam = 0; cam < cameras_.size(); cam++) {
+        LOG(INFO) << "Projecting frame " << cam << ", " << timer.ElapsedTime()
+                  << "ms";
+        cv::Mat3b reprojected;
+        CHECK(reprojector_.SetSourceCamera(*cameras_[cam]));
+        if (!masks_[cam].empty()) {
+          images_[cam].setTo(cv::Vec3b(0, 0, 0), masks_[cam] == 0);
+        }
+        CHECK(reprojector_.SetImage(images_[cam]));
+        CHECK(reprojector_.Reproject(viewpoint, &reprojected));
+        cv::Mat1b mask;
+        cv::cvtColor(reprojected, mask, cv::COLOR_BGR2GRAY);
+        mask = mask > 0;
+        layer_statistics.AddImage(reprojected, mask);
+      }
+      cv::Mat3f variance_rgb = layer_statistics.GetVariance();
+      cv::Mat1f variance_gray;
+      cv::cvtColor(variance_rgb, variance_gray, cv::COLOR_BGR2GRAY);
+
+      result.cost_volume[depth] = variance_gray;
+      result.mean_images[depth] = layer_statistics.GetMean();
+      if (!cache_directory_.empty()) {
+        replay::WriteFloatImage(
+            replay::JoinPath(cache_directory_,
+                             "cost_" + std::to_string(depth) + ".bin"),
+            variance_gray);
+        cv::imwrite(replay::JoinPath(cache_directory_,
+                                     "mean_" + std::to_string(depth) + ".png"),
+                    result.mean_images[depth]);
+      }
+    }
+  }
+  return result;
 }
 
 cv::Mat1f PlaneSweep::GetCost(const Camera& camera1, const Camera& camera2,

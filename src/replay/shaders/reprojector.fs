@@ -6,6 +6,8 @@ uniform sampler2D input_image;
 
 uniform sampler2D input_depth;
 
+uniform float max_depth_error_percent;
+
 uniform vec3 input_position;
 
 // The projection matrices for the input cameras.
@@ -29,14 +31,16 @@ void main() {
 
   float observed_depth = distance(fragment_position, input_position);
 
-  float camera_depth = texture(input_depth, uv.xy).x;
   uv.y = 1.0 - uv.y;
+  float camera_depth = texture(input_depth, uv.xy).x;
 
   float depth_diff = abs(observed_depth - camera_depth);
 
-  /*if (depth_diff > 0.1) {*/
-    /*discard;*/
-  /*}*/
+  if (observed_depth > 0 && camera_depth > 0 &&
+      (observed_depth / camera_depth > 1.0 + max_depth_error_percent ||
+       camera_depth / observed_depth > 1.0 + max_depth_error_percent)) {
+    discard;
+  }
 
   color = texture(input_image, uv.xy).rgb;
 }

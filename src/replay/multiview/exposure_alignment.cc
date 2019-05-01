@@ -22,7 +22,8 @@ size_t EigenVectorHash(const Eigen::Vector2i& vec) {
 struct OverexposedFunctor {
   OverexposedFunctor(float lambda) : l(lambda) {}
   template <typename T>
-  bool operator()(const T* const camera, const T* const point, T* residual) const {
+  bool operator()(const T* const camera, const T* const point,
+                  T* residual) const {
     residual[0] = camera[0] * point[0] - T(1.f);
     if (camera[0] * point[0] > T(1.f)) residual[0] *= T(l);
     return true;
@@ -169,7 +170,8 @@ Eigen::Vector2i RandomlySelectPixel(
 }  // namespace
 
 ExposureAlignment::ExposureAlignment(std::shared_ptr<OpenGLContext> context,
-                                     const ExposureAlignment::Options& options, const ImageCache& images,
+                                     const ExposureAlignment::Options& options,
+                                     const ImageCache& images,
                                      Reconstruction* reconstruction)
     : options_(options),
       context_(context),
@@ -225,25 +227,31 @@ std::vector<Eigen::Vector3f> ExposureAlignment::GenerateExposureCoefficients() {
       reprojector_.SetImage(other_image);
       cv::Mat3b output;
       CHECK(reprojector_.Reproject(camera, &output));
-      // LOG(ERROR) << "Reprojected " << i << " to " <<
-      // first_camera_without_enough_observations; cv::imshow("reprojected",
-      // output); cv::imshow("orig", images_.Get(camera.GetName()));
-      // cv::waitKey();
+      cv::Mat1b gray;
+      cv::cvtColor(output, gray, cv::COLOR_RGB2GRAY);
+      cv::Mat1f gradient;
+      cv::Laplacian(gray, gradient, CV_32F, 15);
       for (int p = 0; p < random_pixels.size(); p++) {
+        if (gradient(random_pixels[p][1], random_pixels[p][0]) >
+            options_.gradient_threshold) {
+          continue;
+        }
         cv::Vec3b color_b = output(random_pixels[p][1], random_pixels[p][0]);
         Eigen::Vector3f color(color_b[0] / 255.0, color_b[1] / 255.0,
                               color_b[2] / 255.0);
         if (color.norm() >= 0.05 && color.norm() <= 0.95) {
-          color[0] = std::pow(color[0], 1.0 / 2.2);
-          color[1] = std::pow(color[1], 1.0 / 2.2);
-          color[2] = std::pow(color[2], 1.0 / 2.2);
+          color[0] = std::pow(color[0], 2.2);
+          color[1] = std::pow(color[1], 2.2);
+          color[2] = std::pow(color[2], 2.2);
           observations[p + start_index][i] = color;
         }
       }
     }
     int erased = 0;
     for (int p = observations.size() - 1; p >= start_index; p--) {
-      if (observations[p].size() < options_.minimum_views_per_observation) {
+      if (observations[p].size() <
+          std::min(options_.minimum_views_per_observation,
+                   reconstruction_->NumCameras())) {
         observations.erase(observations.begin() + p);
         erased++;
         continue;
@@ -271,9 +279,20 @@ void ExposureAlignment::TransformImageExposure(
   CHECK_EQ(output->cols, source.cols);
   CHECK_EQ(output->rows, source.rows);
 
-  cv::Scalar transform(std::pow(target_coeff[0] / source_coeff[0], 1.0 / 2.2),
-                       std::pow(target_coeff[1] / source_coeff[1], 1.0 / 2.2),
-                       std::pow(target_coeff[2] / source_coeff[2], 1.0 / 2.2));
-  cv::multiply(source, transform, *output);
+  const int depth = source.depth();
+  cv::Mat float_source = source.clone();
+  if (depth != CV_32F && depth != CV_64F) {
+    float_source.convertTo(float_source, CV_32F);
+  }
+  cv::pow(float_source, 2.2, float_source);
+
+  cv::Scalar transform(target_coeff[0] / source_coeff[0],
+                       target_coeff[1] / source_coeff[1],
+                       target_coeff[2] / source_coeff[2]);
+  cv::multiply(float_source, transform, *output);
+  cv::pow(*output, 1.0 / 2.2, *output);
+  if (depth != CV_32F && depth != CV_64F) {
+    output->convertTo(*output, depth);
+  }
 }
 }  // namespace replay

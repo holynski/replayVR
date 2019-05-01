@@ -5,17 +5,14 @@
 
 namespace replay {
 
-Camera::Camera() : type_(CameraType::PINHOLE), image_size_(0,0), exposure_(1,1,1) {}
+Camera::Camera()
+    : type_(CameraType::PINHOLE), image_size_(0, 0), exposure_(1, 1, 1) {}
 
 CameraType Camera::GetType() const { return type_; }
 
-const std::string& Camera::GetName() const {
-  return name_;
-}
+const std::string& Camera::GetName() const { return name_; }
 
-void Camera::SetName(const std::string& name) {
-  name_ = name;
-}
+void Camera::SetName(const std::string& name) { name_ = name; }
 
 Eigen::Vector2d Camera::GetFocalLength() const {
   return Eigen::Vector2d(intrinsics_(0, 0), intrinsics_(1, 1));
@@ -33,13 +30,15 @@ const Eigen::Matrix3d& Camera::GetIntrinsicsMatrix() const {
 
 Eigen::Vector2i Camera::GetImageSize() const { return image_size_; }
 
+cv::Size Camera::GetImageSizeCv() const {
+  return cv::Size(image_size_.x(), image_size_.y());
+}
+
 const std::vector<double>& Camera::GetDistortionCoeffs() const {
   return distortion_coeffs_;
 }
 
-const Eigen::Vector3f Camera::GetExposure() const {
-  return exposure_;
-}
+const Eigen::Vector3f Camera::GetExposure() const { return exposure_; }
 
 void Camera::SetFocalLength(const Eigen::Vector2d& focal) {
   const bool in_pixels = focal[0] > 10 && image_size_.norm() != 0;
@@ -68,8 +67,8 @@ void Camera::SetIntrinsicsMatrix(const Eigen::Matrix3d& intrinsics) {
 
 void Camera::SetImageSize(const Eigen::Vector2i& image_size) {
   image_size_ = image_size;
-  for (int row = 0; row < 2; row ++) {
-    for (int col = 0; col < 3; col ++) {
+  for (int row = 0; row < 2; row++) {
+    for (int col = 0; col < 3; col++) {
       if (intrinsics_(row, col) > 10.0) {
         intrinsics_(row, col) /= static_cast<double>(image_size_(row));
       }
@@ -90,7 +89,8 @@ Eigen::Vector3d Camera::GetTranslation() const {
 }
 
 Eigen::Quaterniond Camera::GetOrientation() const {
-  return Eigen::Quaterniond(Eigen::Matrix3d(extrinsics_.block(0, 0, 3, 3))).inverse();
+  return Eigen::Quaterniond(Eigen::Matrix3d(extrinsics_.block(0, 0, 3, 3)))
+      .inverse();
 }
 
 Eigen::Vector3d Camera::GetLookAt() const {
@@ -128,6 +128,7 @@ void Camera::SetOrientationFromLookAtUpVector(const Eigen::Vector3d& lookat,
   extrinsics_.block(0, 0, 3, 3) = Eigen::Matrix3d::Identity();
   extrinsics_.block(0, 0, 3, 3).row(2) = lookat.normalized();
   extrinsics_.block(0, 0, 3, 3).row(1) = up.normalized();
+  extrinsics_.block(0, 0, 3, 3).row(0) = up.cross(lookat).normalized();
 }
 
 void Camera::SetPosition(const Eigen::Vector3d& position) {
@@ -167,9 +168,9 @@ Eigen::Matrix4f Camera::GetOpenGlMvpMatrix() const {
 
 Eigen::Vector3d Camera::UnprojectPoint(const Eigen::Vector2d& point2d,
                                        const double depth) const {
-    const Eigen::Vector3d position = GetPosition();
-    const Eigen::Vector3d direction = PixelToWorldRay(point2d);
-    
+  const Eigen::Vector3d position = GetPosition();
+  const Eigen::Vector3d direction = PixelToWorldRay(point2d);
+
   return position + direction.normalized() * depth;
 }
 
@@ -190,6 +191,8 @@ const double* Camera::distortion_coeffs() const {
 double* Camera::mutable_distortion_coeffs() {
   return distortion_coeffs_.data();
 }
+const float* Camera::exposure_coeffs() const { return exposure_.data(); }
+float* Camera::mutable_exposure_coeffs() { return exposure_.data(); }
 
 std::string Camera::TypeToString(const CameraType type) {
   switch (type) {

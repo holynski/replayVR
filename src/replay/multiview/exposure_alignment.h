@@ -30,14 +30,14 @@ class ExposureAlignment {
     float scale = 5.0;
 
     // Loss function used in optimization.
-    LossFn lossfn = LossFn::LOSS_HUBER;
+    LossFn lossfn = LossFn::LOSS_CAUCHY;
 
     // The minimum number of views that must see a particular point in order for
     // it to be considered a valid observation for optimization. Smaller values
     // will be faster, but may make the resulting estimate less consistent
     // across sequences of frames. Datasets with very sparse views may require
     // decreasing this value.
-    int minimum_views_per_observation = 5;
+    int minimum_views_per_observation = 30;
 
     // The minimum number of observations to be used per frame. Smaller values
     // will be faster, but may make the resulting estimate more susceptible to
@@ -48,6 +48,10 @@ class ExposureAlignment {
 
     // Solves for a single coefficient per image instead of three
     bool single_channel = false;
+
+    // The gradient threshold. Values with a gradient stronger than this value
+    // are not admitted as observations.
+    float gradient_threshold = 10.f;
   };
 
   ExposureAlignment(std::shared_ptr<OpenGLContext> context,

@@ -171,6 +171,9 @@ class OpenGLContext {
   void SetViewportSize(const int& width, const int& height,
                        const bool resize_window = true);
 
+  // Sets the default clear color when rendering.
+  bool SetClearColor(const Eigen::Vector3f& color);
+
   // Uploads values to the shader. It is expected that these values correspond
   // in type and name to uniforms defined in the shader.
   // In specific, for each of the following types, the shader must contain the
@@ -197,6 +200,7 @@ class OpenGLContext {
   bool UploadTexture(const cv::Mat& image, const std::string& name);
   bool UpdateTexture(const cv::Mat& image, const std::string& name);
   bool UploadTexture(const DepthMap& depth, const std::string& name);
+  bool UpdateTexture(const DepthMap& depth, const std::string& name);
   GLuint GetTextureId(const std::string& name) const;
 
   // Uploads a single texture image to a texture array at a given index.
@@ -292,6 +296,7 @@ class OpenGLContext {
   bool window_showing_;
   static float framebuffer_size_to_screen_coords_;
   Eigen::Vector2d mouse_position_;
+  Eigen::Vector3f clear_color_;
   bool BindFullscreenTriangle();
   void RenderToBufferInternal(void* buffer, const int& format,
                               const int& datatype);

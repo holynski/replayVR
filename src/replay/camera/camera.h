@@ -56,6 +56,7 @@ class Camera {
 
   // The W,H size of the image
   Eigen::Vector2i GetImageSize() const;
+  cv::Size GetImageSizeCv() const;
 
   // Returns a 3x3 matrix with the camera intrinsics (focal lengths and
   // principal points).
@@ -211,6 +212,8 @@ class Camera {
   double* mutable_intrinsics();
   const double* distortion_coeffs() const;
   double* mutable_distortion_coeffs();
+  const float* exposure_coeffs() const;
+  float* mutable_exposure_coeffs();
 
   static std::string TypeToString(const CameraType type);
 

@@ -42,6 +42,7 @@ bool DepthMapRenderer::Initialize() {
 
   renderer_->HideWindow();
   is_initialized_ = true;
+  renderer_->UseShader(shader_id_);
   return true;
 }
 

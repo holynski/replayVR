@@ -17,19 +17,25 @@ set(REPLAY_SRC
   camera/fisheye_camera.cc
   camera/pinhole_camera.cc
   depth_map/depth_map.cc
+  flow/flow_from_reprojection.cc
+  flow/greedy_flow.cc
   flow/optical_flow_aligner.cc
   flow/optical_flow_calculator.cc
   flow/visualization.cc
   image/fuzzy_difference.cc
+  image/image_stack_analyzer.cc
   io/byte_stream_reader.cc
   io/read_bundler.cc
   io/read_capreal.cc
+  io/read_float_image.cc
   io/read_ply_file.cc
   io/video_reader.cc
+  io/write_float_image.cc
   io/write_ply_file.cc
   io/zlib_decompressor.cc
   mesh/mesh.cc
   multiview/exposure_alignment.cc
+  multiview/layer_refiner.cc
   multiview/plane_sweep.cc
   rendering/depth_map_renderer.cc
   rendering/equirect_reprojector.cc
@@ -79,6 +85,7 @@ set(REPLAY_LIBRARY_DEPENDENCIES
   ${OPENVR_LIBRARIES}
   ${OpenCV_LIBRARIES}
   ${ZLIB_LIBRARIES}
+  gco
   maxflow
   slic
   tinyply

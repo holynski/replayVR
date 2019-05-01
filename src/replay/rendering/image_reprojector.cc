@@ -13,7 +13,10 @@ namespace replay {
 static const std::string shader_src_dir = REPLAY_SRC_DIR;
 
 ImageReprojector::ImageReprojector(std::shared_ptr<OpenGLContext> context)
-    : context_(context), depth_renderer_(context), camera_changed_(false) {
+    : context_(context),
+      depth_renderer_(context),
+      camera_set_(false),
+      image_set_(false) {
   CHECK(context->IsInitialized()) << "Initialize renderer first!";
 
   std::string vertex_source;
@@ -37,9 +40,21 @@ bool ImageReprojector::SetSourceCamera(const Camera& camera) {
   context_->UploadShaderUniform(camera.GetOpenGlMvpMatrix(),
                                 "input_projection_matrix");
   const Eigen::Vector3f position = camera.GetPosition().cast<float>();
-  context_->UploadShaderUniform(position,
-                                "input_position");
-  camera_changed_ = true;
+  context_->UploadShaderUniform(position, "input_position");
+  DepthMap depth_map;
+  depth_renderer_.GetDepthMap(camera, &depth_map);
+  if (depth_map.Rows() % 2 == 1 || depth_map.Cols() % 2 == 1) {
+    depth_map.Resize(depth_map.Rows() - (depth_map.Rows() % 2),
+                     depth_map.Rows() - (depth_map.Cols() % 2));
+  }
+  CHECK(context_->UseShader(shader_id_));
+  // if (camera_set_) {
+  // context_->UpdateTexture(depth_map, "input_depth");
+
+  //} else {
+  context_->UploadTexture(depth_map, "input_depth");
+  camera_set_ = true;
+  //}
   return true;
 }
 
@@ -49,27 +64,23 @@ bool ImageReprojector::SetImage(const cv::Mat& image) {
     return false;
   }
   CHECK(context_->UseShader(shader_id_));
+  // if (image_set_) {
+  // context_->UpdateTexture(image, "input_image");
+  //} else {
   context_->UploadTexture(image, "input_image");
+  image_set_ = true;
+  input_image_ = image;
+  //}
   return true;
 }
 
-bool ImageReprojector::Reproject(const Camera& camera,
-                                 cv::Mat* reprojected) {
+bool ImageReprojector::Reproject(const Camera& camera, cv::Mat* reprojected,
+                                 const float depth_tolerance) {
   CHECK(context_->UseShader(shader_id_));
-  if (camera_changed_) {
-    DepthMap depth_map;
-    depth_renderer_.GetDepthMap(camera, &depth_map);
-    if (depth_map.Rows() % 2 == 1 || depth_map.Cols() % 2 == 1) {
-      depth_map.Resize(depth_map.Rows() - (depth_map.Rows() % 2),
-                       depth_map.Rows() - (depth_map.Cols() % 2));
-    }
-    CHECK(context_->UseShader(shader_id_));
-    context_->UploadTexture(depth_map, "input_depth");
-    camera_changed_ = false;
-    //mesh_id_ = mesh_id;
-  }
+  context_->UploadShaderUniform(depth_tolerance, "max_depth_error_percent");
   const Eigen::Vector2i& image_size = camera.GetImageSize();
-  *reprojected = cv::Mat3b(image_size.x(), image_size.y());
+  *reprojected =
+      cv::Mat(cv::Size(image_size.x(), image_size.y()), input_image_.type());
   if (!context_->SetViewpoint(camera)) {
     return false;
   }

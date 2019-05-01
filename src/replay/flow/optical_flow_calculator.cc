@@ -1,3 +1,4 @@
+#include <replay/flow/greedy_flow.h>
 #include <replay/flow/optical_flow_calculator.h>
 #include <replay/flow/visualization.h>
 
@@ -7,8 +8,9 @@
 
 namespace replay {
 
-  OpticalFlowCalculator::OpticalFlowCalculator(const OpticalFlowType& type) :
-    type_(type) {
+OpticalFlowCalculator::OpticalFlowCalculator(
+    const OpticalFlowType& type, std::shared_ptr<OpenGLContext> context)
+    : type_(type), context_(context) {
   switch (type) {
     case DIS:
       flow_ = cv::DISOpticalFlow::create(cv::DISOpticalFlow::PRESET_MEDIUM);
@@ -28,6 +30,11 @@ namespace replay {
     case SparseToDense:
       flow_ = cv::optflow::createOptFlow_SparseToDense();
       break;
+    case Greedy: {
+      CHECK_NOTNULL(context_);
+      GreedyFlow* greedy = new GreedyFlow(context);
+      flow_ = cv::Ptr<cv::DenseOpticalFlow>(greedy);
+    } break;
     default:
       LOG(FATAL) << "Optical flow type not implemented.";
   }
@@ -47,14 +54,15 @@ cv::Mat2f OpticalFlowCalculator::ComputeFlow(
   if (target.channels() != 1 && type_ != OpticalFlowType::Simple) {
     cv::cvtColor(target, target_gray, cv::COLOR_BGR2GRAY);
   }
-  
-  LOG(ERROR) << "CHANNELS: " << target_gray.channels() << " " << base_gray.channels();
+
+  LOG(ERROR) << "CHANNELS: " << target_gray.channels() << " "
+             << base_gray.channels();
 
   cv::Mat2f flow = initialization.clone();
   if (flow.empty()) {
     flow = cv::Mat2f(base.size(), cv::Vec2f(0, 0));
   }
-  
+
   cv::imwrite("output/initialization.png", FlowToColor(flow));
   flow_->calc(base_gray, target_gray, flow);
 

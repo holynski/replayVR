@@ -14,6 +14,8 @@
 
 namespace replay {
 
+class Camera;
+
 // This mesh class provides a simple interface to a mesh structure. The OpenMesh
 // library is used under the hood to maintain an efficient half-edge data
 // structure. This provides efficient access for adjacency in the mesh and a
@@ -30,6 +32,9 @@ class Mesh {
   static Mesh Plane(const Eigen::Vector3f &center,
                     const Eigen::Vector3f &normal,
                     const Eigen::Vector2f extent);
+  static Mesh Plane(const Eigen::Vector3f &tl, const Eigen::Vector3f &tr,
+                    const Eigen::Vector3f &bl, const Eigen::Vector3f &br);
+  static Mesh Frustum(const Camera& camera, bool with_arrows = true);
 
   // Methods to load/save the mesh to/from disk. The file type is deduced from
   // the extention of the provided filename. Texture file defines the filename
@@ -97,6 +102,13 @@ class Mesh {
   // Returns the mean edge length.
   float MeanEdgeLength() const;
 
+  // Gets the median face normal. Sometimes useful for defining the canonical
+  // scene orientation
+  Eigen::Vector3f GetMedianNormal() const;
+
+  // Returns the bounding box of the mesh
+  void GetBoundingBox(Eigen::Vector3f *min, Eigen::Vector3f *max) const;
+
   // Compute the opposite edge of a vertex on a face.
   Eigen::Vector3f ComputeOppositeEdge(const TriangleFaceId face_id,
                                       const VertexId vertex_id) const;
@@ -144,6 +156,7 @@ class Mesh {
 
   // Per-vertex colors
   void SetVertexColor(const VertexId &vertex, const Eigen::Vector3f &color);
+  Eigen::Vector3f VertexColor(const VertexId &vertex) const;
   // Eigen::Vector3f VertexColor(const VertexId &vertex);
 
   // Applies a 4x4 transformation matrix to all points in the mesh

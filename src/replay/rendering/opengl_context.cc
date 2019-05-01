@@ -82,9 +82,8 @@ OpenGLContext::OpenGLContext()
       pbo_id_(-1),
       mvp_location_(-1),
       is_initialized_(false),
-      window_showing_(false) {
-  // CHECK(Initialize()) << "Initializing OpenGL failed;";
-}
+      window_showing_(false),
+      clear_color_(0, 0, 0) {}
 
 OpenGLContext::~OpenGLContext() {
   instantiated_renderers_--;
@@ -567,6 +566,9 @@ bool OpenGLContext::CreateRenderBuffer(const int& datatype, const int& format) {
         case GL_RGBA:
           internal_format = GL_RGBA32F;
           break;
+        case GL_RG:
+          internal_format = GL_RG32F;
+          break;
         default:
           internal_format = 0;
           LOG(ERROR) << "Buffer type not supported.";
@@ -659,21 +661,35 @@ bool OpenGLContext::UploadTextureInternal(void* data, const int& width,
   glfwMakeContextCurrent(window_);
   CHECK(current_program_ >= 0) << "Did not call UseShader!";
   glUseProgram(programs_[current_program_]);
+  CheckForOpenGLErrors();
+  // if (textures_.count(name) > 0) {
+  // return UpdateTextureInternal(data, width,
+  // height, format,
+  // datatype,
+  // internal_format,
+  // name);
+  //}
   if (textures_.count(name) < 1) {
     GLuint tex;
     glGenTextures(1, &tex);
     textures_opengl_[name] = textures_.size();
     textures_[name] = tex;
+    CheckForOpenGLErrors();
   }
-  glActiveTexture(GL_TEXTURE4 + textures_opengl_[name]);
   GLuint tex = textures_[name];
+  // This might cause trouble ^. Why is it being set to the last one always?
+  glActiveTexture(GL_TEXTURE4 + textures_opengl_[name]);
+  CheckForOpenGLErrors();
   glBindTexture(GL_TEXTURE_2D, tex);
+  CheckForOpenGLErrors();
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  CheckForOpenGLErrors();
   glTexImage2D(GL_TEXTURE_2D, 0, internal_format, width, height, 0, format,
                datatype, data);
+  CheckForOpenGLErrors();
   GLint texture_location =
       glGetUniformLocation(programs_[current_program_], name.c_str());
   glUniform1i(texture_location, 4 + textures_opengl_[name]);
@@ -718,6 +734,9 @@ bool OpenGLContext::UploadTexture(const cv::Mat& image,
   if (dst.channels() == 1)
     return UploadTextureInternal(reinterpret_cast<void*>(dst.data), dst.cols,
                                  dst.rows, GL_RED, datatype, GL_R8, name);
+  if (dst.channels() == 2)
+    return UploadTextureInternal(reinterpret_cast<void*>(dst.data), dst.cols,
+                                 dst.rows, GL_RG, datatype, GL_RG16, name);
   LOG(FATAL) << "Number of channels " << dst.channels()
              << " not implemented in UploadTexture.";
   return false;
@@ -737,6 +756,19 @@ bool OpenGLContext::UpdateTextureInternal(void* data, const int& width,
   glActiveTexture(GL_TEXTURE4 + textures_opengl_[name]);
   GLuint tex = textures_[name];
   glBindTexture(GL_TEXTURE_2D, tex);
+  int w, h;
+  glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &w);
+  glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &h);
+
+  // If the texture size has changed, we need to delete this texture and create
+  // a new one.
+  if (width != w || height != h) {
+    // glDeleteTextures(1, &tex);
+    textures_opengl_.erase(name);
+    textures_.erase(name);
+    return UploadTextureInternal(data, width, height, format, datatype,
+                                 internal_format, name);
+  }
   glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, format, datatype,
                   data);
   CheckForOpenGLErrors();
@@ -764,6 +796,10 @@ bool OpenGLContext::UpdateTexture(const cv::Mat& image,
     return UpdateTextureInternal(reinterpret_cast<void*>(dst.data), dst.cols,
                                  dst.rows, GL_RED, GL_UNSIGNED_BYTE, GL_R8,
                                  name);
+  if (dst.channels() == 2)
+    return UpdateTextureInternal(reinterpret_cast<void*>(dst.data), dst.cols,
+                                 dst.rows, GL_RG, GL_UNSIGNED_BYTE, GL_RG8,
+                                 name);
   LOG(FATAL) << "Number of channels " << dst.channels()
              << " not implemented in UploadTexture.";
   return false;
@@ -772,6 +808,12 @@ bool OpenGLContext::UpdateTexture(const cv::Mat& image,
 bool OpenGLContext::UploadTexture(const DepthMap& depth,
                                   const std::string& name) {
   return UploadTextureInternal((void*)depth.Depth().data, depth.Cols(),
+                               depth.Rows(), GL_RED, GL_FLOAT, GL_R32F, name);
+}
+
+bool OpenGLContext::UpdateTexture(const DepthMap& depth,
+                                  const std::string& name) {
+  return UpdateTextureInternal((void*)depth.Depth().data, depth.Cols(),
                                depth.Rows(), GL_RED, GL_FLOAT, GL_R32F, name);
 }
 
@@ -893,7 +935,7 @@ void OpenGLContext::SetViewportSize(const int& width, const int& height,
   width_ = width;
   height_ = height;
   if (resize_window) {
-    //glfwSetWindowSize(window_, framebuffer_size_to_screen_coords_ * width,
+    // glfwSetWindowSize(window_, framebuffer_size_to_screen_coords_ * width,
     //                  framebuffer_size_to_screen_coords_ * height);
   }
 }
@@ -911,8 +953,8 @@ bool OpenGLContext::SetViewpoint(const Camera& camera, const float& near_clip,
   glUseProgram(programs_[current_program_]);
   width_ = camera.GetImageSize().x();
   height_ = camera.GetImageSize().y();
-  glfwSetWindowSize(window_, framebuffer_size_to_screen_coords_ * width_,
-                    framebuffer_size_to_screen_coords_ * height_);
+  // glfwSetWindowSize(window_, framebuffer_size_to_screen_coords_ * width_,
+  //                  framebuffer_size_to_screen_coords_ * height_);
   glViewport(0, 0, width_, height_);
 
   glUniformMatrix4fv(mvp_location_, 1, GL_FALSE,
@@ -934,6 +976,15 @@ bool OpenGLContext::SetProjectionMatrix(const Eigen::Matrix4f& projection) {
   glUniformMatrix4fv(mvp_location_, 1, GL_FALSE,
                      (const GLfloat*)projection_.data());
   CheckForOpenGLErrors();
+  return true;
+}
+
+bool OpenGLContext::SetClearColor(const Eigen::Vector3f& color) {
+  if (color.maxCoeff() > 1.0f || color.minCoeff() < 0.0f) {
+    LOG(ERROR) << "Invalid color value. Expected range is 0-1.";
+    return false;
+  }
+  clear_color_ = color;
   return true;
 }
 
@@ -960,7 +1011,7 @@ void OpenGLContext::Render() {
   glViewport(0, 0, width, height);
   glfwMakeContextCurrent(window_);
   glBindFramebuffer(GL_FRAMEBUFFER, 0);
-  glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+  glClearColor(clear_color_[0], clear_color_[1], clear_color_[2], 1.0f);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
   CHECK(current_program_ >= 0) << "Did not call UseShader!";
   CHECK(current_mesh_ >= 0 || !using_projection_matrix_[current_program_])
@@ -989,6 +1040,8 @@ void OpenGLContext::ShowWindow() {
   glfwMakeContextCurrent(window_);
   if (!window_showing_) {
     glfwShowWindow(window_);
+    glfwSetWindowSize(window_, framebuffer_size_to_screen_coords_ * width_,
+                      framebuffer_size_to_screen_coords_ * height_);
     window_showing_ = true;
     CheckForOpenGLErrors();
   }
@@ -1037,6 +1090,9 @@ int NumElements(const int& format) {
       break;
     case GL_RED_INTEGER:
       return 1;
+      break;
+    case GL_RG:
+      return 2;
       break;
     default:
       LOG(FATAL) << "OpenGL format " << format << " not recognized.";
@@ -1114,7 +1170,7 @@ void OpenGLContext::RenderToImage(DepthMap* depth) {
 
 void OpenGLContext::RenderToImage(cv::Mat* image) {
   // TODO(holynski): Account for non-even resolution images
-  glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+  glClearColor(clear_color_[0], clear_color_[1], clear_color_[2], 0.0f);
   int intended_width = width_;
   int intended_height = height_;
   if (width_ % 2 != 0 || height_ % 2 != 0) {
@@ -1142,7 +1198,6 @@ void OpenGLContext::RenderToImage(cv::Mat* image) {
       RenderToBufferInternal((void*)image->data, GL_RED, datatype);
       break;
     case 2:
-      CHECK(false);
       RenderToBufferInternal((void*)image->data, GL_RG, datatype);
       break;
     case 3:

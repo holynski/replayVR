@@ -1,10 +1,10 @@
-#include <opencv2/opencv.hpp>
+#include "replay/rendering/model_renderer.h"
 #include <glog/logging.h>
+#include <opencv2/opencv.hpp>
 #include "replay/camera/camera.h"
 #include "replay/depth_map/depth_map.h"
 #include "replay/mesh/mesh.h"
 #include "replay/rendering/depth_map_renderer.h"
-#include "replay/rendering/model_renderer.h"
 #include "replay/sfm/reconstruction.h"
 #include "replay/util/image_cache.h"
 
@@ -30,7 +30,7 @@ bool ModelRenderer::Initialize() {
     return false;
   }
 
-  renderer_->SetViewportSize(1000,1000);
+  renderer_->SetViewportSize(1000, 1000);
 
   CHECK(renderer_->UseShader(shader_id_));
 
@@ -55,8 +55,28 @@ bool ModelRenderer::RenderView(const Camera& viewpoint, cv::Mat* output) {
 
   renderer_->RenderToImage(output);
   cv::resize(*output, *output, cv::Size(image_size.x(), image_size.y()));
-  //renderer_->ShowWindow();
-  //renderer_->Render();
+  // renderer_->ShowWindow();
+  // renderer_->Render();
+  return true;
+}
+
+bool ModelRenderer::RenderView(const Eigen::Matrix4f& projection,
+                               const Eigen::Vector2i& image_size,
+                               cv::Mat* output) {
+  CHECK(is_initialized_) << "Initialize ModelRenderer first.";
+  CHECK_NOTNULL(output);
+  CHECK(renderer_->UseShader(shader_id_));
+
+  // Make sure the input and output have the same number of channels.
+  *output = cv::Mat3b(image_size.x(), image_size.y());
+
+  // Set the rendered viewpoint to correspond to the camera.
+  if (!renderer_->SetProjectionMatrix(projection)) {
+    return false;
+  }
+
+  renderer_->RenderToImage(output);
+  cv::resize(*output, *output, cv::Size(image_size.x(), image_size.y()));
   return true;
 }
 
