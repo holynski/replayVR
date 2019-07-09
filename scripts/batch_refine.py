@@ -54,13 +54,13 @@ for dataset in datasets:
            ' --logtostderr'+\
            ' --v=2'
 
-    if (os.system('./bin/separate_reflections_mrf ' + args) != 0):
+    if (os.system('./bin/separate_reflections ' + args) != 0):
         # shutil.rmtree(results_folder)
         quit()
 
 
-    layer_args = ' --first_layer_image='+os.path.join(results_folder, 'min_composite_mrf.png') + \
-           ' --second_layer_image='+os.path.join(results_folder, 'max_composite_naive.png')+\
+    layer_args = ' --first_layer_image='+os.path.join(results_folder, 'min_composite.png') + \
+           ' --second_layer_image='+os.path.join(results_folder, 'max_composite.png')+\
            ' --images_directory='+os.path.join(dataset_path, 'frames_undistorted/')+\
            ' --output_directory='+results_folder+\
            ' --reconstruction='+os.path.join(dataset_path, 'reconstruction.bin') + \

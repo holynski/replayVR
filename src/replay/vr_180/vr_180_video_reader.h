@@ -1,7 +1,7 @@
 #pragma once
 
 #include <replay/io/video_reader.h>
-#include <replay/mesh/mesh.h>
+#include <replay/geometry/mesh.h>
 #include <Eigen/Dense>
 #include <Eigen/Geometry>
 #include <iostream>

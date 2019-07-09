@@ -12,8 +12,8 @@
 #include <opencv2/opencv.hpp>
 
 #include "replay/depth_map/depth_map.h"
-#include "replay/mesh/mesh.h"
-#include "replay/mesh/triangle_id_map.h"
+#include "replay/geometry/mesh.h"
+#include "replay/geometry/triangle_id_map.h"
 #include "replay/util/row_array.h"
 
 namespace replay {
@@ -140,7 +140,6 @@ bool OpenGLContext::CompileAndLinkShaders(const std::string& vertex,
     LOG(ERROR) << "Compiling vertex shader failed: " << info_log.data();
     return false;
   }
-  LOG(INFO) << "Compiled vertex.";
   GLuint fragment_shader = glCreateShader(GL_FRAGMENT_SHADER);
   source = (const GLchar*)fragment.c_str();
   glShaderSource(fragment_shader, 1, &source, 0);
@@ -158,7 +157,6 @@ bool OpenGLContext::CompileAndLinkShaders(const std::string& vertex,
     LOG(ERROR) << "Compiling fragment shader failed: " << info_log.data();
     return false;
   }
-  LOG(INFO) << "Compiled fragment.";
 
   GLuint program = glCreateProgram();
 
@@ -179,7 +177,6 @@ bool OpenGLContext::CompileAndLinkShaders(const std::string& vertex,
     LOG(ERROR) << "Linking shaders failed: " << info_log.data();
     return false;
   }
-  LOG(INFO) << "Linked.";
   glDetachShader(program, vertex_shader);
   glDetachShader(program, fragment_shader);
   // glBindAttribLocation(program, 0, "vert");
@@ -613,7 +610,15 @@ bool OpenGLContext::CreateRenderBuffer(const int& datatype, const int& format) {
       LOG(ERROR) << "Buffer type not supported.";
       return false;
   }
-  glActiveTexture(GL_TEXTURE0 + output_buffers_.size());
+
+  if (buffer_types_[internal_format] > 0) {
+    output_buffers_[current_program_] =
+        output_buffers_[buffer_types_[internal_format]];
+    buffers_bound_[current_program_] = true;
+    return true;
+  }
+
+  glActiveTexture(GL_TEXTURE0);
   GLuint output_texture = 0;
   GLuint output_buffer = 0;
   GLuint render_buffer;
@@ -650,6 +655,7 @@ bool OpenGLContext::CreateRenderBuffer(const int& datatype, const int& format) {
 
   output_buffers_[current_program_] = output_buffer;
   buffers_bound_[current_program_] = true;
+  buffer_types_[internal_format] = current_program_;
   return true;
 }
 
@@ -724,19 +730,27 @@ bool OpenGLContext::UploadTexture(const cv::Mat& image,
     default:
       LOG(FATAL) << "Mat type not supported.";
   }
-  if (dst.channels() == 3)
-
+  if (dst.channels() == 3) {
     return UploadTextureInternal(reinterpret_cast<void*>(dst.data), dst.cols,
                                  dst.rows, GL_RGB, datatype, GL_RGB8, name);
-  if (dst.channels() == 4)
+  }
+  if (dst.channels() == 4) {
     return UploadTextureInternal(reinterpret_cast<void*>(dst.data), dst.cols,
                                  dst.rows, GL_RGBA, datatype, GL_RGBA8, name);
-  if (dst.channels() == 1)
+  }
+  if (dst.channels() == 1) {
     return UploadTextureInternal(reinterpret_cast<void*>(dst.data), dst.cols,
                                  dst.rows, GL_RED, datatype, GL_R8, name);
-  if (dst.channels() == 2)
-    return UploadTextureInternal(reinterpret_cast<void*>(dst.data), dst.cols,
-                                 dst.rows, GL_RG, datatype, GL_RG16, name);
+  }
+  if (dst.channels() == 2) {
+    if (datatype == GL_FLOAT) {
+      return UploadTextureInternal(reinterpret_cast<void*>(dst.data), dst.cols,
+                                   dst.rows, GL_RG, datatype, GL_RG32F, name);
+    } else {
+      return UploadTextureInternal(reinterpret_cast<void*>(dst.data), dst.cols,
+                                   dst.rows, GL_RG, datatype, GL_RG16, name);
+    }
+  }
   LOG(FATAL) << "Number of channels " << dst.channels()
              << " not implemented in UploadTexture.";
   return false;
@@ -784,7 +798,6 @@ bool OpenGLContext::UpdateTexture(const cv::Mat& image,
                cv::Size(dst.cols - (dst.cols % 2), dst.rows - (dst.rows % 2)));
   }
   if (dst.channels() == 3)
-
     return UpdateTextureInternal(reinterpret_cast<void*>(dst.data), dst.cols,
                                  dst.rows, GL_RGB, GL_UNSIGNED_BYTE, GL_RGB8,
                                  name);
@@ -808,12 +821,6 @@ bool OpenGLContext::UpdateTexture(const cv::Mat& image,
 bool OpenGLContext::UploadTexture(const DepthMap& depth,
                                   const std::string& name) {
   return UploadTextureInternal((void*)depth.Depth().data, depth.Cols(),
-                               depth.Rows(), GL_RED, GL_FLOAT, GL_R32F, name);
-}
-
-bool OpenGLContext::UpdateTexture(const DepthMap& depth,
-                                  const std::string& name) {
-  return UpdateTextureInternal((void*)depth.Depth().data, depth.Cols(),
                                depth.Rows(), GL_RED, GL_FLOAT, GL_R32F, name);
 }
 

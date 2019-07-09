@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-#include "replay/mesh/mesh.h"
+#include "replay/geometry/mesh.h"
 
 namespace replay {
 bool ReadPLYFile(const std::string& filename, Mesh* mesh,

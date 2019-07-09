@@ -1,6 +1,6 @@
 #pragma once
 
-#include <replay/mesh/mesh.h>
+#include <replay/geometry/mesh.h>
 #include <replay/io/stream_reader.h>
 #include <Eigen/Sparse>
 #include <iostream>

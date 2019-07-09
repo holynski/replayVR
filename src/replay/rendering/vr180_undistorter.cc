@@ -2,7 +2,7 @@
 #include <openvr.h>
 #include <Eigen/Dense>
 #include "replay/depth_map/depth_map.h"
-#include "replay/mesh/mesh.h"
+#include "replay/geometry/mesh.h"
 #include "replay/rendering/vr_context.h"
 #include "replay/third_party/theia/sfm/types.h"
 #include "replay/util/types.h"

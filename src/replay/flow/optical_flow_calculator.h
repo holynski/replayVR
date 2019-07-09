@@ -26,7 +26,7 @@ class OpticalFlowCalculator {
 
  private:
   cv::Ptr<cv::DenseOpticalFlow> flow_;
-  const OpticalFlowType& type_;
+  const OpticalFlowType type_;
   std::shared_ptr<OpenGLContext> context_;
 };
 

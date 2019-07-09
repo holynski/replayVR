@@ -92,6 +92,12 @@ cv::Mat ImageStackAnalyzer::GetMin() const {
   return output;
 }
 
+cv::Mat ImageStackAnalyzer::GetCount() const {
+  std::vector<cv::Mat> split;
+  cv::split(N_, split);
+  return split[0];
+}
+
 cv::Mat ImageStackAnalyzer::GetMax() const {
   CHECK(options_.compute_max);
   cv::Mat output;

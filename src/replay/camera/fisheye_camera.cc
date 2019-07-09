@@ -57,9 +57,19 @@ cv::Mat FisheyeCamera::UndistortImage(const cv::Mat& image) const {
 }
 
 Eigen::Vector3d FisheyeCamera::PixelToWorldRay(
-      const Eigen::Vector2d& point2d) const {
+    const Eigen::Vector2d& point2d) const {
+  Eigen::Vector2d point_normalized = point2d;
+  if (image_size_.norm() != 0) {
+    point_normalized[0] /= image_size_[0];
+    point_normalized[1] /= image_size_[1];
+  }
+  CHECK_LE(point_normalized.x(), 1);
+  CHECK_GE(point_normalized.x(), 0);
+  CHECK_LE(point_normalized.y(), 1);
+  CHECK_GE(point_normalized.y(), 0);
   Eigen::Vector3d camera_ray;
-  TransformPixelToCamera(intrinsics_.data(), distortion_coeffs_.data(), point2d.data(), camera_ray.data());
+  TransformPixelToCamera(intrinsics_.data(), distortion_coeffs_.data(),
+                         point_normalized.data(), camera_ray.data());
 
   camera_ray.normalize();
   return GetRotation().transpose() * camera_ray;

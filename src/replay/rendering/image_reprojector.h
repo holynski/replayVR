@@ -2,7 +2,7 @@
 
 #include "replay/camera/camera.h"
 #include "replay/depth_map/depth_map.h"
-#include "replay/mesh/mesh.h"
+#include "replay/geometry/mesh.h"
 #include "replay/rendering/depth_map_renderer.h"
 #include "replay/rendering/opengl_context.h"
 #include "replay/sfm/reconstruction.h"

@@ -6,7 +6,7 @@
 #include "ceres/rotation.h"
 #include "replay/camera/fisheye_camera.h"
 #include "replay/camera/pinhole_camera.h"
-#include "replay/mesh/mesh.h"
+#include "replay/geometry/mesh.h"
 
 namespace replay {
 

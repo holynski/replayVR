@@ -9,7 +9,7 @@
 
 #include <GL/glew.h>
 
-#else  
+#else
 
 #include <GL/glew.h>
 #include <windows.h>
@@ -21,10 +21,10 @@
 
 #include <opencv2/opencv.hpp>
 
-#include "replay/depth_map/depth_map.h"
-#include "replay/mesh/mesh.h"
-#include "replay/mesh/triangle_id_map.h"
 #include "replay/camera/camera.h"
+#include "replay/depth_map/depth_map.h"
+#include "replay/geometry/mesh.h"
+#include "replay/geometry/triangle_id_map.h"
 #include "replay/util/row_array.h"
 
 namespace replay {
@@ -275,6 +275,7 @@ class OpenGLContext {
   std::vector<GLuint> fragment_shaders_;
   std::vector<GLuint> vertex_shaders_;
   std::vector<GLuint> output_buffers_;
+  std::unordered_map<GLenum, int> buffer_types_;
   std::vector<bool> using_projection_matrix_;
   GLuint pbo_id_;
   std::vector<bool> buffers_bound_;
@@ -313,6 +314,7 @@ class OpenGLContext {
                                     const int& format, const GLint& datatype,
                                     const int& index);
   bool CreateRenderBuffer(const int& datatype, const int& format);
+  //bool BindRenderBuffer(const int& datatype, const int& format);
   void DestroyContext();
   static void KeyboardCallback(GLFWwindow* window, int key, int scancode,
                                int action, int mods);

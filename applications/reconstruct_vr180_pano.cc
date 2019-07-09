@@ -6,7 +6,7 @@
 #include <Eigen/Dense>
 #include <Eigen/Geometry>
 #include "replay/camera/fisheye_camera.h"
-#include "replay/mesh/mesh.h"
+#include "replay/geometry/mesh.h"
 #include "replay/sfm/reconstruction.h"
 #include "replay/sfm/tracked_point.h"
 #include "replay/sfm/video_tracker.h"

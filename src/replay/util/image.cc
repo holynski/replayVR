@@ -3,6 +3,7 @@
 
 #include <FreeImage.h>
 #include <glog/logging.h>
+#include <opencv2/opencv.hpp>
 
 namespace replay {
 
@@ -13,7 +14,8 @@ Eigen::Vector2i GetImageSizeFromHeader(const std::string& filename) {
 
   CHECK_NE(format, FIF_UNKNOWN) << "Unrecognized image format.";
 
-  FIBITMAP* fi_bitmap = FreeImage_Load(format, filename.c_str(), FIF_LOAD_NOPIXELS);
+  FIBITMAP* fi_bitmap =
+      FreeImage_Load(format, filename.c_str(), FIF_LOAD_NOPIXELS);
   if (fi_bitmap == nullptr) {
     LOG(FATAL) << "Image load failed.";
   }
@@ -27,4 +29,5 @@ Eigen::Vector2i GetImageSizeFromHeader(const std::string& filename) {
   return Eigen::Vector2i(width, height);
 }
 
-}
+
+}  // namespace replay

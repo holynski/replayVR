@@ -1,7 +1,7 @@
+#include <glog/logging.h>
 #include <math.h>
 #include <stdlib.h>
 #include <opencv2/opencv.hpp>
-#include <glog/logging.h>
 
 namespace replay {
 namespace {
@@ -70,20 +70,25 @@ cv::Mat3b FlowToColor(const cv::Mat2f& flow) {
   float max_radius = 0;
   for (int row = 0; row < flow.rows; row++) {
     for (int col = 0; col < flow.cols; col++) {
+      if (flow(row, col)[0] == FLT_MAX || flow(row, col)[1] == FLT_MAX) {
+        continue;
+      }
       float radius = cv::norm(flow(row, col));
       max_radius = std::fmax(radius, max_radius);
     }
   }
+  LOG(ERROR) << "Max radius: " << max_radius;
   cv::Mat3b color(flow.size());
   if (max_radius <= 0) {
+    LOG(ERROR) << "Flow field is empty!";
     max_radius = 1;
   }
-  LOG(ERROR) << "Max radius: " << max_radius;
   for (int row = 0; row < flow.rows; row++) {
     for (int col = 0; col < flow.cols; col++) {
       const cv::Vec2f& flow_value = flow(row, col);
-      if (flow_value != flow_value) {
-        color(row, col) = cv::Vec3b(0,0,0);
+      if (flow_value != flow_value || flow_value[0] == FLT_MAX ||
+          flow_value[1] == FLT_MAX) {
+        color(row, col) = cv::Vec3b(0, 0, 0);
         continue;
       }
       color(row, col) =

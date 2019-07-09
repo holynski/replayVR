@@ -1,7 +1,7 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 #include <replay/io/read_bundler.h>
-#include <replay/mesh/mesh.h>
+#include <replay/geometry/mesh.h>
 #include <replay/multiview/exposure_alignment.h>
 #include <replay/rendering/opengl_context.h>
 #include <replay/sfm/reconstruction.h>

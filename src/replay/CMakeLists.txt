@@ -22,6 +22,7 @@ set(REPLAY_SRC
   flow/optical_flow_aligner.cc
   flow/optical_flow_calculator.cc
   flow/visualization.cc
+  image/colormap.cc
   image/fuzzy_difference.cc
   image/image_stack_analyzer.cc
   io/byte_stream_reader.cc
@@ -33,10 +34,13 @@ set(REPLAY_SRC
   io/write_float_image.cc
   io/write_ply_file.cc
   io/zlib_decompressor.cc
-  mesh/mesh.cc
+  geometry/mesh.cc
+  geometry/plane.cc
+  multiview/composite_motion_refiner.cc
   multiview/exposure_alignment.cc
   multiview/layer_refiner.cc
   multiview/plane_sweep.cc
+  multiview/reflection_segmenter.cc
   rendering/depth_map_renderer.cc
   rendering/equirect_reprojector.cc
   rendering/image_based_renderer.cc
@@ -58,6 +62,7 @@ set(REPLAY_SRC
   util/image_cache.cc
   util/lru_cache.cc
   util/matrix_utils.cc
+  util/progress_bar.cc
   util/strings.cc
   util/timer.cc
   )

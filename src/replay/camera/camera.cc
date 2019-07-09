@@ -169,7 +169,8 @@ Eigen::Matrix4f Camera::GetOpenGlMvpMatrix() const {
 Eigen::Vector3d Camera::UnprojectPoint(const Eigen::Vector2d& point2d,
                                        const double depth) const {
   const Eigen::Vector3d position = GetPosition();
-  const Eigen::Vector3d direction = PixelToWorldRay(point2d);
+  Eigen::Vector2d scaled_point = point2d;
+  const Eigen::Vector3d direction = PixelToWorldRay(scaled_point);
 
   return position + direction.normalized() * depth;
 }

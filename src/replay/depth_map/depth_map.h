@@ -6,6 +6,8 @@
 
 #include "replay/util/row_array.h"
 
+class Mesh;
+
 namespace replay {
 
 // This class holds a depth map and confidence map as 2d arrays/images. The
@@ -80,6 +82,7 @@ class DepthMap {
                              float max_depth = -1) const;
 
   void WriteConfidenceAsGrayscale(const std::string& output_file) const;
+
 
  private:
   cv::Mat1f depth_;

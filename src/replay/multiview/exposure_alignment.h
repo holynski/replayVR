@@ -5,7 +5,7 @@
 #include <Eigen/Core>
 #include <vector>
 
-#include <replay/mesh/mesh.h>
+#include <replay/geometry/mesh.h>
 #include <replay/rendering/depth_map_renderer.h>
 #include <replay/rendering/image_reprojector.h>
 #include <replay/sfm/reconstruction.h>

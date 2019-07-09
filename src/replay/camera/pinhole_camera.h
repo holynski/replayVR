@@ -64,7 +64,7 @@ void PinholeCamera::TransformCameraToPixel(const T* intrinsics,
 
   pixel[0] = intrinsics[0] * distorted[0] + intrinsics[3] * distorted[1] +
              intrinsics[6];
-  pixel[1] = intrinsics[1] * distorted[1] + intrinsics[7];
+  pixel[1] = intrinsics[4] * distorted[1] + intrinsics[7];
 }
 
 template <typename T>
@@ -98,14 +98,13 @@ void PinholeCamera::UndistortPoint(const T* distortion,
     prev_undistorted_point[0] = undistorted_point[0];
     prev_undistorted_point[1] = undistorted_point[1];
     const T squared_radius = (undistorted_point[0] * undistorted_point[0] +
-                 undistorted_point[1] * undistorted_point[1]);
+                              undistorted_point[1] * undistorted_point[1]);
 
-    const T radial_distortion = 1.0 + squared_radius * (k1 + squared_radius * k2);
+    const T radial_distortion =
+        1.0 + squared_radius * (k1 + squared_radius * k2);
 
-    undistorted_point[0] =
-        distorted_point[0] / radial_distortion;
-    undistorted_point[1] =
-        distorted_point[1] / radial_distortion;
+    undistorted_point[0] = distorted_point[0] / radial_distortion;
+    undistorted_point[1] = distorted_point[1] / radial_distortion;
 
     // Keep doing this until we've converged.
     if (ceres::abs(undistorted_point[0] - prev_undistorted_point[0]) < 1e-10 &&
@@ -121,6 +120,8 @@ void PinholeCamera::ProjectPoint(const T* extrinsics, const T* intrinsics,
                                  T* pixel2d) {
   T camera_point[3];
   TransformWorldToCamera(extrinsics, point3d, camera_point);
+  T check[3];
+  TransformCameraToWorld(extrinsics, camera_point, check);
   TransformCameraToPixel(intrinsics, distortion, camera_point, pixel2d);
 }
 

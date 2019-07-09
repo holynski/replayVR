@@ -1,5 +1,6 @@
 #pragma once
 
+#include <glog/logging.h>
 #include <Eigen/Dense>
 #include <opencv2/opencv.hpp>
 #include <vector>
@@ -242,12 +243,16 @@ void Camera::TransformWorldToCamera(const T* extrinsics, const T* world,
 template <typename T>
 void Camera::TransformCameraToWorld(const T* extrinsics, const T* camera,
                                     T* world) {
-  camera[0] = world[0] * extrinsics[0] + world[1] * extrinsics[1] +
-              world[2] * extrinsics[2] + T(1) * extrinsics[3];
-  camera[1] = world[0] * extrinsics[4] + world[1] * extrinsics[5] +
-              world[2] * extrinsics[6] + T(1) * extrinsics[7];
-  camera[2] = world[0] * extrinsics[8] + world[1] * extrinsics[9] +
-              world[2] * extrinsics[10] + T(1) * extrinsics[11];
+  T translated[3];
+  translated[0] = camera[0] - extrinsics[12];
+  translated[1] = camera[1] - extrinsics[13];
+  translated[2] = camera[2] - extrinsics[14];
+  world[0] = translated[0] * extrinsics[0] + translated[1] * extrinsics[1] +
+             translated[2] * extrinsics[2];
+  world[1] = translated[0] * extrinsics[4] + translated[1] * extrinsics[5] +
+             translated[2] * extrinsics[6];
+  world[2] = translated[0] * extrinsics[8] + translated[1] * extrinsics[9] +
+             translated[2] * extrinsics[10];
 }
 
 }  // namespace replay

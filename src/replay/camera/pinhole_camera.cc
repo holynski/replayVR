@@ -44,8 +44,16 @@ cv::Mat PinholeCamera::UndistortImage(const cv::Mat& image) const {
 Eigen::Vector2d PinholeCamera::ProjectPoint(
     const Eigen::Vector3d& point3d) const {
   Eigen::Vector2d point2d;
-  ProjectPoint(extrinsics_.data(), intrinsics_.data(),
-               distortion_coeffs_.data(), point3d.data(), point2d.data());
+  Eigen::Vector3d point3d_local = point3d - GetPosition();
+  point3d_local = GetRotation() * point3d_local;
+  //ProjectPoint(extrinsics_.data(), intrinsics_.data(),
+               //distortion_coeffs_.data(), point3d.data(), point2d.data());
+  TransformCameraToPixel(intrinsics_.data(), distortion_coeffs_.data(), point3d_local.data(), point2d.data());
+
+  if (image_size_.norm() != 0) {
+    point2d[0] *= image_size_[0];
+    point2d[1] *= image_size_[1];
+  }
   return point2d;
 }
 
@@ -55,9 +63,19 @@ void PinholeCamera::SetDistortionCoeffs(const std::vector<double>& coeffs) {
 }
 
 Eigen::Vector3d PinholeCamera::PixelToWorldRay(
-      const Eigen::Vector2d& point2d) const {
+    const Eigen::Vector2d& point2d) const {
+  Eigen::Vector2d point_normalized = point2d;
+  if (image_size_.norm() != 0) {
+    point_normalized[0] /= image_size_[0];
+    point_normalized[1] /= image_size_[1];
+  }
+  CHECK_LE(point_normalized.x(), 1);
+  CHECK_GE(point_normalized.x(), 0);
+  CHECK_LE(point_normalized.y(), 1);
+  CHECK_GE(point_normalized.y(), 0);
   Eigen::Vector3d camera_ray;
-  TransformPixelToCamera(intrinsics_.data(), distortion_coeffs_.data(), point2d.data(), camera_ray.data());
+  TransformPixelToCamera(intrinsics_.data(), distortion_coeffs_.data(),
+                         point_normalized.data(), camera_ray.data());
 
   camera_ray.normalize();
   return GetRotation().transpose() * camera_ray;

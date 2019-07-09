@@ -3,7 +3,7 @@
 #include "replay/camera/camera.h"
 #include "replay/camera/fisheye_camera.h"
 #include "replay/camera/pinhole_camera.h"
-#include "replay/mesh/mesh.h"
+#include "replay/geometry/mesh.h"
 #include "replay/sfm/tracked_point.h"
 
 #include <glog/logging.h>
@@ -225,7 +225,7 @@ Mesh Reconstruction::CreateFrustumMesh() const {
   int i = 0;
   for (const auto camera : cameras_) {
     i++;
-    mesh.Append(Mesh::Frustum(*camera));
+    mesh.Append(Mesh::Frustum(*camera, false));
   }
 
   return mesh;

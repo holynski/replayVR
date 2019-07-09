@@ -1,7 +1,7 @@
 #pragma once
 
 #include "replay/depth_map/depth_map.h"
-#include "replay/mesh/mesh.h"
+#include "replay/geometry/mesh.h"
 #include "replay/rendering/vr_context.h"
 #include "replay/third_party/theia/sfm/camera/camera.h"
 #include "replay/vr_180/vr_180_video_reader.h"

@@ -2,14 +2,23 @@
 #include <glog/logging.h>
 #include <replay/camera/camera.h>
 #include <replay/camera/pinhole_camera.h>
+#include <replay/flow/flow_from_reprojection.h>
+#include <replay/flow/greedy_flow.h>
 #include <replay/flow/optical_flow_aligner.h>
+#include <replay/flow/visualization.h>
+#include <replay/geometry/plane.h>
+#include <replay/image/colormap.h>
 #include <replay/image/fuzzy_difference.h>
 #include <replay/image/image_stack_analyzer.h>
 #include <replay/image/sum_absolute_difference.h>
 #include <replay/io/read_bundler.h>
 #include <replay/io/read_capreal.h>
+#include <replay/io/write_float_image.h>
+#include <replay/multiview/composite_motion_refiner.h>
 #include <replay/multiview/exposure_alignment.h>
+#include <replay/multiview/layer_refiner.h>
 #include <replay/multiview/plane_sweep.h>
+#include <replay/multiview/reflection_segmenter.h>
 #include <replay/rendering/image_based_renderer.h>
 #include <replay/rendering/image_reprojector.h>
 #include <replay/rendering/max_compositor_sequential.h>
@@ -17,38 +26,37 @@
 #include <replay/rendering/model_renderer.h>
 #include <replay/rendering/opengl_context.h>
 #include <replay/sfm/reconstruction.h>
+#include <replay/sfm/video_tracker.h>
 #include <replay/util/depth_cache.h>
 #include <replay/util/filesystem.h>
 #include <replay/util/image_cache.h>
+#include <replay/util/progress_bar.h>
 #include <replay/util/strings.h>
 #include <replay/util/timer.h>
 
 #include <Eigen/Geometry>
 
-DEFINE_string(bundler_file, "", "");
-DEFINE_string(image_list, "", "");
+DEFINE_string(reconstruction, "", "");
+DEFINE_string(partition_image, "", "");
 DEFINE_string(images_directory, "", "");
 DEFINE_string(output_directory, "", "");
 DEFINE_string(mesh, "", "");
 DEFINE_string(window_mesh, "", "");
-DEFINE_string(min_composite_cache, "", "");
+DEFINE_string(min_composite, "", "");
 DEFINE_string(depth_cache, "", "");
-// DEFINE_string(capreal_cache, "", "");
+
+static const int kSkipFrames = 3;
+static const int kMaxFrames = 30;
 
 int main(int argc, char* argv[]) {
   google::InitGoogleLogging(argv[0]);
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   replay::Reconstruction scene;
-  CHECK(replay::FileExists(FLAGS_bundler_file))
-      << "Reconstruction file (" << FLAGS_bundler_file << ") doesn't exist!";
-  CHECK(replay::FileExists(FLAGS_image_list))
-      << "Reconstruction file (" << FLAGS_image_list << ") doesn't exist!";
+  CHECK(scene.Load(FLAGS_reconstruction));
 
   // Initialize caches. These are where the images are stored, so they don't
   // need to be recomputed each time.
   replay::ImageCache images(FLAGS_images_directory, 300);
-  replay::ImageCache min_composite_cache(FLAGS_min_composite_cache, 300);
-  replay::ReadBundler(FLAGS_bundler_file, FLAGS_image_list, images, &scene);
 
   CHECK_GT(scene.NumCameras(), 0);
 
@@ -63,16 +71,8 @@ int main(int argc, char* argv[]) {
       std::make_shared<replay::OpenGLContext>();
   CHECK(context->Initialize());
 
-  replay::PlaneSweep ps(context);
-  // replay::ModelRenderer renderer(context);
-  // CHECK(renderer.Initialize());
-  LOG(ERROR) << "Uploading mesh";
-
   replay::ImageReprojector image_reprojector(context);
 
-  replay::MinCompositorSequential min_compositor(context);
-  LOG(ERROR) << "Uploading min composite images";
-  CHECK(min_compositor.Initialize());
   int mesh_id = context->UploadMesh(mesh);
   context->BindMesh(mesh_id);
 
@@ -152,29 +152,36 @@ int main(int argc, char* argv[]) {
   frustum_mesh.Append(replay::Mesh::Frustum(*central_view));
   frustum_mesh.Save(replay::JoinPath(FLAGS_output_directory, "frustum.ply"));
 
-  replay::ExposureAlignment::Options exposure_options;
-  replay::ExposureAlignment exposure(context, exposure_options, images, &scene);
-  LOG(ERROR) << "Aligning exposure";
-  exposure.GenerateExposureCoefficients();
-
   /*
    * Render the first layer images
    */
 
-  // Render the diffuse mesh once from the central viewpoint.
-  // cv::Mat3b textured_mesh;
   context->BindMesh(mesh_id);
-  // CHECK(renderer.RenderView(*central_view, &textured_mesh));
-  // cv::imwrite(replay::JoinPath(FLAGS_output_directory, "textured.png"),
-  // textured_mesh);
 
-  replay::ImageStackAnalyzer first_layer_statistics;
   replay::SimpleTimer timer;
-  for (int cam = 0; cam < scene.NumCameras(); cam++) {
-    LOG(ERROR) << "Computing layer 1, frame (" << cam << "/"
-               << scene.NumCameras() << "): " << timer.ElapsedTime() << "ms";
+
+  const Eigen::Vector2i image_size = central_view->GetImageSize();
+  cv::Mat3b min_composite(image_size.y(), image_size.x(),
+                          cv::Vec3b(255, 255, 255));
+  replay::ImageStackAnalyzer::Options options;
+  options.compute_max = false;
+  options.compute_min = false;
+  options.compute_median = false;
+  replay::ImageStackAnalyzer first_layer_statistics(options);
+
+  // Get initial min-composite
+
+  for (int cam = 0; cam < std::min(scene.NumCameras(), kMaxFrames);
+       cam += kSkipFrames) {
+    replay::PrintProgress(
+        cam + 1, std::min(scene.NumCameras(), kMaxFrames), "Computing layer 1",
+        "- " + std::to_string(static_cast<int>(timer.ElapsedTime())) +
+            " ms / frame");
     const replay::Camera& camera = scene.GetCamera(cam);
     cv::Mat image = images.Get(camera.GetName()).clone();
+    cv::imwrite(replay::JoinPath(FLAGS_output_directory,
+                                 "input_view_" + camera.GetName()),
+                image);
     replay::ExposureAlignment::TransformImageExposure(
         image, camera.GetExposure(), Eigen::Vector3f(1, 1, 1), &image);
 
@@ -189,118 +196,224 @@ int main(int argc, char* argv[]) {
     unknown_mask = unknown_mask == 0;
     cv::dilate(unknown_mask, unknown_mask, cv::Mat());
     reprojected.setTo(cv::Vec3b(0, 0, 0), unknown_mask);
+    first_layer_statistics.AddImage(reprojected, unknown_mask == 0);
 
     cv::imwrite(replay::JoinPath(FLAGS_output_directory,
                                  "reprojected_" + camera.GetName()),
                 reprojected);
 
-    first_layer_statistics.AddImage(reprojected, unknown_mask == 0);
+    min_composite.copyTo(reprojected, unknown_mask);
+    min_composite = cv::min(min_composite, reprojected);
   }
 
-  cv::Mat3b min_composite = first_layer_statistics.GetMin();
-  cv::imwrite(replay::JoinPath(FLAGS_output_directory, "min_composite.png"),
+  // Get the flow resulting from the geometry
+  std::unordered_map<int, cv::Mat2f> flows_to_layer1;
+  std::unordered_map<int, cv::Mat2f> flows_from_layer1;
+  std::unordered_map<int, cv::Mat2f> flows_to_layer2;
+  std::unordered_map<int, cv::Mat2f> flows_from_layer2;
+
+  replay::FlowFromReprojection flow_from_geometry(context);
+  for (int cam = 0; cam < std::min(scene.NumCameras(), kMaxFrames);
+       cam += kSkipFrames) {
+    const replay::Camera& camera = scene.GetCamera(cam);
+    context->BindMesh(mesh_id);
+    cv::Mat2f flow_from_layer1 =
+        flow_from_geometry.Calculate(*central_view, camera);
+    flows_from_layer1[cam] = flow_from_layer1;
+    cv::Mat2f flow_to_layer1 =
+        flow_from_geometry.Calculate(camera, *central_view);
+    flows_to_layer1[cam] = flow_to_layer1;
+  }
+
+  cv::Mat3b mean_composite = first_layer_statistics.GetMean();
+  cv::imwrite(replay::JoinPath(FLAGS_output_directory, "min_composite_0.png"),
               min_composite);
+  cv::imwrite(replay::JoinPath(FLAGS_output_directory, "mean_composite_.png"),
+              mean_composite);
+  replay::GreedyFlow greedy_flow(context, 5);
+  // static const int kNumLayer1MotionIterations = 1;
+  // for (int it = 0; it < kNumLayer1MotionIterations; it++) {
+  // LOG(ERROR) << "Refining motion, iteration " << it;
+  //// Refine the first-layer refinement and min-composite
+  // cv::Mat3b min_composite_refined(image_size.y(), image_size.x(),
+  // cv::Vec3b(255, 255, 255));
+  // cv::Mat3f variance_rgb = first_layer_statistics.GetVariance();
+  // cv::Mat1f variance;
+  // cv::cvtColor(variance_rgb, variance, cv::COLOR_BGR2GRAY);
+  // replay::ImageStackAnalyzer first_layer_statistics_refined(options);
 
-  cv::Mat3b mean = first_layer_statistics.GetMean();
+  // for (int cam = 0; cam < scene.NumCameras(); cam += kSkipFrames) {
+  // const replay::Camera& camera = scene.GetCamera(cam);
+  // const cv::Mat& image = images.Get(camera.GetName());
+  // cv::Mat2f refined_flow = flows_from_layer1[cam].clone();
+  // greedy_flow.calc(mean_composite, image, refined_flow);
+  // cv::imshow("refined_backward",
+  // replay::FlowToColor(refined_flow - flows_from_layer1[cam]));
+  // flows_from_layer1[cam] = refined_flow;
 
-  replay::ImageStackAnalyzer first_layer_aligned_statistics;
-  for (int cam = 0; cam < scene.NumCameras(); cam++) {
-    LOG(ERROR) << "Computing layer 1, frame (" << cam << "/"
-               << scene.NumCameras() << "): " << timer.ElapsedTime() << "ms";
-    const replay::Camera& camera = scene.GetCamera(cam);
-    cv::Mat3b image = cv::imread(replay::JoinPath(
-        FLAGS_output_directory, "reprojected_" + camera.GetName()));
-    cv::Mat3b aligned;
-    aligned = aligner.Align(image, mean);
-    cv::Mat1b unknown_mask;
-    cv::cvtColor(aligned, unknown_mask, cv::COLOR_BGR2GRAY);
-    unknown_mask = unknown_mask == 0;
-    cv::dilate(unknown_mask, unknown_mask, cv::Mat());
-    cv::imwrite(
-        replay::JoinPath(FLAGS_output_directory, "flow_" + camera.GetName()),
-        aligned);
+  // cv::waitKey(1);
+  // cv::Mat3b reprojected =
+  // replay::OpticalFlowAligner::InverseWarp(image, refined_flow);
+  // cv::imwrite(replay::JoinPath(FLAGS_output_directory,
+  //"refined_reprojected_" + camera.GetName()),
+  // reprojected);
 
-    first_layer_aligned_statistics.AddImage(aligned, unknown_mask == 0);
-  }
-  cv::Mat3f variance_aligned_rgb = first_layer_aligned_statistics.GetVariance();
-  cv::Mat1f variance_aligned;
-  cv::cvtColor(variance_aligned_rgb, variance_aligned, cv::COLOR_BGR2GRAY);
+  // cv::Mat1b unknown_mask;
+  // cv::cvtColor(reprojected, unknown_mask, cv::COLOR_BGR2GRAY);
+  // unknown_mask = unknown_mask == 0;
+  // cv::dilate(unknown_mask, unknown_mask, cv::Mat());
+  // reprojected.setTo(cv::Vec3b(0, 0, 0), unknown_mask);
+  // first_layer_statistics_refined.AddImage(reprojected, unknown_mask == 0);
+  // min_composite_refined.copyTo(reprojected, unknown_mask);
+  // min_composite_refined = cv::min(min_composite_refined, reprojected);
 
-  cv::Mat3f variance_rgb = first_layer_statistics.GetVariance();
-  cv::Mat1f variance;
-  cv::cvtColor(variance_rgb, variance, cv::COLOR_BGR2GRAY);
-  cv::Mat1b mean_gray;
-  cv::cvtColor(mean, mean_gray, cv::COLOR_BGR2GRAY);
-  cv::Mat1f mean_gradient;
-  cv::Laplacian(mean_gray, mean_gradient, CV_32F, 15);
-  double min, max;
-  cv::minMaxLoc(variance, &min, &max);
-  LOG(ERROR) << "Variance min/max: " << min << "/" << max;
-  cv::Mat1f scaled_variance;
-  mean_gradient = cv::abs(mean_gradient);
-  cv::minMaxLoc(mean_gradient, &min, &max);
-  LOG(ERROR) << "Laplacian min/max: " << min << "/" << max;
-  mean_gradient /= 10000000;
-  // mean_gradient *= ;
-  cv::divide(variance, mean_gradient + 1, scaled_variance);
-  cv::minMaxLoc(scaled_variance, &min, &max);
-  LOG(ERROR) << "Scaled variance min/max: " << min << "/" << max;
+  // refined_flow = flows_to_layer1[cam].clone();
+  // greedy_flow.calc(image, min_composite_refined, refined_flow);
+  // cv::imshow("refinement",
+  // replay::FlowToColor(refined_flow - flows_to_layer1[cam]));
+  // cv::imshow("refined_forward", replay::FlowToColor(refined_flow));
+  // flows_to_layer1[cam] = refined_flow;
+  //}
 
-  cv::imwrite(replay::JoinPath(FLAGS_output_directory, "mean.png"), mean);
-  cv::imwrite(replay::JoinPath(FLAGS_output_directory, "variance.png"),
-              variance / 10);
-   cv::imwrite(replay::JoinPath(FLAGS_output_directory,
-   "variance_aligned.png"), variance_aligned / 10);
-  cv::imwrite(replay::JoinPath(FLAGS_output_directory, "scaled_variance.png"),
-              scaled_variance / 10);
-  cv::imwrite(replay::JoinPath(FLAGS_output_directory, "mean_gradient.png"),
-              mean_gradient * 10);
+  // cv::Mat1b mean_gray;
+  // cv::cvtColor(mean_composite, mean_gray, cv::COLOR_BGR2GRAY);
+  // cv::Mat3b mean_composite_refined =
+  // first_layer_statistics_refined.GetMean();
 
-  float variance_threshold = 20;
-  cv::Mat1b variance_mask = scaled_variance > variance_threshold;
-  cv::erode(variance_mask, variance_mask, cv::Mat());
-  cv::erode(variance_mask, variance_mask, cv::Mat());
-  cv::erode(variance_mask, variance_mask, cv::Mat());
-  cv::dilate(variance_mask, variance_mask, cv::Mat());
-  cv::dilate(variance_mask, variance_mask, cv::Mat());
-  cv::dilate(variance_mask, variance_mask, cv::Mat());
-  // cv::imshow("variance_mask", variance_mask);
-  // cv::waitKey();
+  // cv::imwrite(
+  // replay::JoinPath(FLAGS_output_directory,
+  //"min_composite_" + std::to_string(it + 1) + ".png"),
+  // min_composite_refined);
+  // cv::imwrite(
+  // replay::JoinPath(FLAGS_output_directory,
+  //"mean_composite_" + std::to_string(it + 1) + ".png"),
+  // mean_composite_refined);
+  // cv::imshow("previous", min_composite);
+  // cv::imshow("current", min_composite_refined);
+  // cv::waitKey(1);
 
-  cv::imwrite(replay::JoinPath(FLAGS_output_directory, "first_layer_mask.png"),
-              variance_mask);
+  // min_composite = min_composite_refined;
+  // mean_composite = first_layer_statistics_refined.GetMean();
+  //}
 
-  replay::PlaneSweep sweeper(context);
+  // We have the min-composite now, let's get the residuals
+
+  const std::string sweep_cache_directory =
+      replay::JoinPath(FLAGS_images_directory, "../sweep/");
+  replay::PlaneSweep sweeper(context, sweep_cache_directory);
   replay::ImageReprojector image_reprojector2(context);
-  for (int cam = 0; cam < scene.NumCameras(); cam++) {
-    LOG(ERROR) << "Computing layer 1 residual, frame (" << cam << "/"
-               << scene.NumCameras() << "): " << timer.ElapsedTime() << "ms";
-    const replay::Camera& camera = scene.GetCamera(cam);
 
-    cv::Mat3b image = cv::imread(replay::JoinPath(
-        FLAGS_output_directory, "reprojected_" + camera.GetName()));
-    cv::Mat3b residual = min_difference.GetDifference(image, min_composite, 10);
-    residual.setTo(cv::Vec3b(0, 0, 0), variance_mask == 0);
-    cv::imwrite(replay::JoinPath(FLAGS_output_directory,
-                                 "residual_" + camera.GetName()),
-                residual);
+  replay::VideoTrackerOptions tracker_options;
+  tracker_options.distance_between_keypoints = 12;
+  tracker_options.max_points = 15000;
+  tracker_options.min_points = 15000;
+  replay::VideoTracker tracker(tracker_options);
+  for (int cam = 0; cam < std::min(scene.NumCameras(), kMaxFrames);
+       cam += kSkipFrames) {
+    replay::PrintProgress(
+        cam + 1, std::min(scene.NumCameras(), kMaxFrames), "Computing residual",
+        "- " + std::to_string(static_cast<int>(timer.ElapsedTime())) +
+            " ms / frame");
+    const replay::Camera& camera = scene.GetCamera(cam);
+    const cv::Mat& image = images.Get(camera.GetName());
 
     // Reproject the residual images back into the source viewpoints
     cv::Mat3b reprojected;
-    image_reprojector2.SetImage(residual);
+    image_reprojector2.SetImage(min_composite);
     image_reprojector2.SetSourceCamera(*central_view);
+    context->SetClearColor(Eigen::Vector3f(1.0, 1.0, 1.0));
     image_reprojector2.Reproject(camera, &reprojected);
+    context->SetClearColor(Eigen::Vector3f(0.0, 0.0, 0.0));
+    cv::Mat3b residual = min_difference.GetDifference(image, reprojected, 1);
     cv::imwrite(replay::JoinPath(FLAGS_output_directory,
-                                 "per_view_residual_" + camera.GetName()),
-                reprojected);
+                                 "per_view_residual_0_" + camera.GetName()),
+                residual);
     cv::Mat1b mask;
-    cv::cvtColor(reprojected, mask, cv::COLOR_BGR2GRAY);
+    cv::cvtColor(residual, mask, cv::COLOR_BGR2GRAY);
     mask = mask > 0;
+    residual.setTo(0, mask == 0);
 
+#ifdef VIDEO_TRACKING
+    tracker.TrackFrame(image, &camera);
+
+    if (cam > 0) {
+      const replay::Camera& last_camera = scene.GetCamera(cam - 1);
+      const cv::Mat& last_image = images.Get(last_camera.GetName());
+      std::vector<Eigen::Vector2d> kp1, kp2;
+      if (tracker.GetMatchingKeypoints(&last_camera, &camera, &kp1, &kp2)) {
+        cv::imshow("tracks",
+                   replay::VisualizeMatches(last_image, kp1, image, kp2));
+        cv::waitKey(1);
+      }
+    }
+#endif
     // Save them for later so we can estimate geometry
-    sweeper.AddView(camera, reprojected, mask);
+
+    sweeper.AddView(camera, residual, mask);
   }
 
+#ifdef VIDEO_TRACKING
+  std::vector<Eigen::Vector3f> reflected_points;
+  std::unordered_map<int, replay::DepthMap> depth_cache;
+  for (auto point : tracker.GetTracks()) {
+    if (point->NumObservations() < 5) {
+      continue;
+    }
+    point->Triangulate();
+    // Eigen::Vector2d central_projection =
+    // central_view->ProjectPoint(point->GetPoint());
+
+    bool geometry_consistent = true;
+    double average_reprojection_error = 0.0;
+    double num_observations = static_cast<double>(point->NumObservations());
+    for (int cam = 0; cam < std::min(scene.NumCameras(), kMaxFrames);
+         cam += kSkipFrames) {
+      const replay::Camera& camera = scene.GetCamera(cam);
+      if (!point->HasObservation(&camera)) {
+        continue;
+      }
+      if (depth_cache.count(cam) == 0) {
+        depth_renderer.GetDepthMap(camera, &depth_cache[cam]);
+      }
+
+      const Eigen::Vector2d projected_coord =
+          camera.ProjectPoint(point->GetPoint());
+      const Eigen::Vector2d base_frame_coord =
+          point->GetObservation(&camera).head<2>();
+      double error = (projected_coord - base_frame_coord).norm();
+      average_reprojection_error += error / num_observations;
+      double tracked_depth = (point->GetPoint() - camera.GetPosition()).norm();
+      double mesh_depth =
+          depth_cache[cam].GetDepth(base_frame_coord.y(), base_frame_coord.x());
+      if (tracked_depth / mesh_depth > 1.2 && mesh_depth > 0.0001) {
+        continue;
+      } else {
+        geometry_consistent = false;
+        break;
+      }
+    }
+    if (geometry_consistent && average_reprojection_error < 0.5) {
+      scene.AddPoint(point);
+      reflected_points.emplace_back(point->GetPoint().cast<float>());
+    }
+  }
+
+  replay::Plane reflected_plane(reflected_points);
+  replay::Mesh reflection_mesh = reflected_plane.GetMesh();
+  const int reflection_mesh_id = context->UploadMesh(reflection_mesh);
+
+  // reflection_mesh.Save(
+  // replay::JoinPath(FLAGS_output_directory, "second_layer_mesh.ply"));
+
+  replay::Mesh pc = scene.CreatePointCloud();
+  LOG(ERROR) << "Reflected point cloud has " << pc.NumVertices() << " points.";
+  reflection_mesh.Save("/Users/holynski/plane.ply");
+
+  pc.Append(scene.CreateFrustumMesh());
+
+  pc.Save("/Users/holynski/test.ply");
+
+#endif
   // Align the residual to find the dominant geometry
   LOG(ERROR) << "Computing depth for second layer.";
   replay::DepthMap base_depth;
@@ -308,304 +421,336 @@ int main(int argc, char* argv[]) {
   float first_layer_depth =
       base_depth.GetDepth(base_depth.Rows() / 2, base_depth.Cols() / 2);
 
+#ifdef PLANE_SWEEP
   replay::PlaneSweepResult plane_sweep_result = sweeper.Sweep(
-      *central_view, first_layer_depth * 2.0, first_layer_depth * 4.0, 10);
+      *central_view, first_layer_depth * 2.0, first_layer_depth * 6.0, 200);
 
-  float lowest_mean = FLT_MAX;
-  float lowest_mean_index = -1;
-  double min_cost = -1, max_cost = -1;
+  cv::Mat1f reflected_depth(min_composite.size(), -1);
+  cv::Mat1f smallest_variance(min_composite.size(), FLT_MAX);
+  cv::Mat1b mean(min_composite.size(), 0);
+
+  double min_variance = DBL_MAX;
+  double max_variance = 0;
+
   for (const auto& cost_layer : plane_sweep_result.cost_volume) {
-    if (min_cost <= 0) {
-      cv::minMaxLoc(cost_layer.second, &min_cost, &max_cost);
+    cv::Mat1f variance = cost_layer.second.clone();
+    double min;
+    double max;
+    cv::minMaxLoc(variance, &min, &max);
+    min_variance = std::min(min, min_variance);
+    max_variance = std::max(max, max_variance);
+    variance.setTo(FLT_MAX,
+                   plane_sweep_result.num_samples[cost_layer.first] < 3);
+    // variance.setTo(FLT_MAX,
+    // plane_sweep_result.num_samples[cost_layer.first] < 10);
+    // cv::imwrite(
+    // replay::JoinPath(
+    // FLAGS_output_directory,
+    //"cost_" + std::to_string(cost_layer.first / first_layer_depth) +
+    //".png"),
+    // cost_layer.second * 255.0 / max_cost);
+    for (int row = 0; row < min_composite.rows; row++) {
+      for (int col = 0; col < min_composite.cols; col++) {
+        if (smallest_variance(row, col) > variance(row, col)) {
+          reflected_depth(row, col) = cost_layer.first;
+          smallest_variance(row, col) = variance(row, col);
+          mean(row, col) = cv::norm(
+              plane_sweep_result.mean_images[cost_layer.first](row, col));
+        }
+      }
     }
+  }
+
+  for (const auto& cost_layer : plane_sweep_result.cost_volume) {
     cv::imwrite(
         replay::JoinPath(
             FLAGS_output_directory,
-            "cost_" + std::to_string(cost_layer.first / first_layer_depth) +
-                ".png"),
-        cost_layer.second * 255.0 / max_cost);
-    float mean = cv::mean(cost_layer.second, cost_layer.second > 0)[0];
-    if (lowest_mean > mean) {
-      lowest_mean = mean;
-      lowest_mean_index = cost_layer.first;
+            "cost_volume_" + std::to_string(cost_layer.first) + ".png"),
+        replay::FloatToColor(cost_layer.second, min_variance, max_variance));
+  }
+
+  double min, max;
+  reflected_depth.setTo(0, reflected_depth > first_layer_depth * 9);
+  reflected_depth.setTo(0, reflected_depth <= 0);
+  reflected_depth.setTo(0, mean <= 20);
+  reflected_depth.setTo(0, smallest_variance > std::pow(50, 2));
+  cv::minMaxLoc(reflected_depth, &min, &max);
+  cv::Mat3b colormap_depth = replay::FloatToColor(reflected_depth);
+  colormap_depth.setTo(0, reflected_depth == 0);
+  // reflected_depth.setTo(0, smallest_variance > std::pow(10, 2));
+  cv::minMaxLoc(smallest_variance, &min, &max);
+  smallest_variance.setTo(max, reflected_depth > first_layer_depth * 9);
+  smallest_variance.setTo(max, reflected_depth <= 0);
+  smallest_variance.setTo(max, mean <= 20);
+  smallest_variance.setTo(max, smallest_variance > std::pow(50, 2));
+  cv::waitKey();
+
+  std::vector<Eigen::Vector3f> reflected_points;
+
+  for (int row = 0; row < reflected_depth.rows; row++) {
+    for (int col = 0; col < reflected_depth.cols; col++) {
+      if (reflected_depth(row, col) > 0.0) {
+        Eigen::Vector3d point3d = central_view->UnprojectPoint(
+            Eigen::Vector2d(col, row), reflected_depth(row, col));
+        reflected_points.emplace_back(point3d.cast<float>());
+      }
     }
   }
-  cv::imwrite(
-      replay::JoinPath(FLAGS_output_directory, "second_layer_variance.png"),
-      plane_sweep_result.cost_volume[lowest_mean_index] / 10);
-  cv::imwrite(replay::JoinPath(FLAGS_output_directory, "second_layer_mean.png"),
-              plane_sweep_result.mean_images[lowest_mean_index]);
-  cv::imwrite(replay::JoinPath(FLAGS_output_directory, "second_layer_min.png"),
-              plane_sweep_result.min_images[lowest_mean_index]);
-  cv::imwrite(replay::JoinPath(FLAGS_output_directory, "second_layer_max.png"),
-              plane_sweep_result.max_images[lowest_mean_index]);
 
-  LOG(ERROR) << "Chose layer: " << lowest_mean_index / first_layer_depth;
+  replay::Plane reflected_plane(reflected_points);
+  replay::Mesh reflection_mesh = reflected_plane.GetMesh();
+  const int reflection_mesh_id = context->UploadMesh(reflection_mesh);
+#endif
 
-  cv::Mat3b layer1_mean =
-      cv::imread(replay::JoinPath(FLAGS_output_directory, "mean.png"));
-  cv::Mat3b layer1_min =
-      cv::imread(replay::JoinPath(FLAGS_output_directory, "min_composite.png"));
-  cv::Mat3b layer1_mask = cv::imread(
-      replay::JoinPath(FLAGS_output_directory, "first_layer_mask.png"));
-  cv::Mat3b layer2 = cv::imread(
-      replay::JoinPath(FLAGS_output_directory, "second_layer_max.png"));
-  replay::ImageReprojector image_reprojector3(context);
+#define SINGLE_PLANE
+#ifdef SINGLE_PLANE
+  const Eigen::Vector3f plane_normal =
+      central_view->GetLookAt().cast<float>().normalized();
+  const Eigen::Vector3f plane_center =
+      (central_view->GetPosition().cast<float>() +
+       plane_normal * first_layer_depth * 3);
+
+  replay::Plane reflected_plane(plane_center, -plane_normal);
+  replay::Mesh reflection_mesh = reflected_plane.GetMesh(plane_center, 100000);
+  const int reflection_mesh_id = context->UploadMesh(reflection_mesh);
+#endif
+
+  reflection_mesh.Save(
+      replay::JoinPath(FLAGS_output_directory, "reflected.ply"));
+  cv::Mat3b max_composite(image_size.y(), image_size.x(), cv::Vec3b(0, 0, 0));
+  greedy_flow.SetWindowSize(50);
+
+  for (int cam = 0; cam < std::min(scene.NumCameras(), kMaxFrames);
+       cam += kSkipFrames) {
+    replay::PrintProgress(
+        cam + 1, std::min(scene.NumCameras(), kMaxFrames), "Computing flows",
+        "- " + std::to_string(static_cast<int>(timer.ElapsedTime())) +
+            " ms / frame");
+    const replay::Camera& camera = scene.GetCamera(cam);
+    context->BindMesh(reflection_mesh_id);
+    cv::Mat2f flow_from_layer2 =
+        flow_from_geometry.Calculate(*central_view, camera);
+    flows_from_layer2[cam] = flow_from_layer2;
+    cv::Mat2f flow_to_layer2 =
+        flow_from_geometry.Calculate(camera, *central_view);
+    flows_to_layer2[cam] = flow_to_layer2;
+  }
+
+  replay::ImageStackAnalyzer second_layer_statistics(options);
+  cv::Mat3b max_composite_refined(image_size.y(), image_size.x(),
+                                  cv::Vec3b(0, 0, 0));
+  for (int cam = 0; cam < std::min(scene.NumCameras(), kMaxFrames);
+       cam += kSkipFrames) {
+    replay::PrintProgress(
+        cam + 1, std::min(scene.NumCameras(), kMaxFrames),
+        "Computing max composite",
+        "- " + std::to_string(static_cast<int>(timer.ElapsedTime())) +
+            " ms / frame");
+    const replay::Camera& camera = scene.GetCamera(cam);
+    cv::Mat3b residual_perview =
+        cv::imread(replay::JoinPath(FLAGS_output_directory,
+
+                                    "per_view_residual_0_" + camera.GetName()));
+    context->BindMesh(reflection_mesh_id);
+
+    cv::Mat3b refined_reprojected = replay::OpticalFlowAligner::InverseWarp(
+        residual_perview, flows_from_layer2[cam]);
+
+    cv::imwrite(replay::JoinPath(FLAGS_output_directory,
+
+                                 "refined_second_plane_" + camera.GetName()),
+                refined_reprojected);
+
+    cv::Mat1b unknown_mask_refined;
+    cv::cvtColor(refined_reprojected, unknown_mask_refined, cv::COLOR_BGR2GRAY);
+    unknown_mask_refined = (unknown_mask_refined == 0);
+
+    max_composite_refined.copyTo(refined_reprojected, unknown_mask_refined);
+    max_composite_refined = cv::max(refined_reprojected, max_composite_refined);
+    second_layer_statistics.AddImage(refined_reprojected,
+                                     unknown_mask_refined == 0);
+
+    // cv::Mat1b unknown_mask;
+    // cv::cvtColor(reprojected, unknown_mask, cv::COLOR_BGR2GRAY);
+    // unknown_mask = (unknown_mask == 0);
+    // cv::dilate(unknown_mask, unknown_mask, cv::Mat());
+    // cv::dilate(unknown_mask, unknown_mask, cv::Mat());
+    // reprojected.setTo(cv::Vec3b(0, 0, 0), unknown_mask);
+
+    // max_composite.copyTo(reprojected, unknown_mask);
+    // max_composite = cv::max(reprojected, max_composite);
+  }
+
+  cv::imwrite(replay::JoinPath(FLAGS_output_directory, "max_composite.png"),
+              max_composite_refined);
+
+  max_composite = max_composite_refined;
+
+  LOG(ERROR) << "Refining layers...";
+
+  // central_view->SetImageSize(Eigen::Vector2i(1920 / 8, 1080 / 16));
+  // cv::resize(min_composite, min_composite, cv::Size(1920 / 8, 1080 / 16));
+  // cv::resize(max_composite, max_composite, cv::Size(1920 / 8, 1080 / 16));
+
+  // replay::LayerRefiner refiner(context, *central_view, mesh,
+  // plane_sweep_result.meshes[lowest_mean_index]);
+  cv::Mat1b mask(max_composite.size(), 0.0);
+  static const int kNumLayer2MotionIterations = 8;
+  for (int it = kNumLayer2MotionIterations; it >= 1; it++) {
+    const float kDownscaleFactor = std::pow(2, it);
+    LOG(ERROR) << "Refinement iteration " << it;
+    replay::ReflectionSegmenter segmenter(context, *central_view, min_composite,
+                                          max_composite, mesh, reflection_mesh);
+    for (int cam = 0; cam < std::min(scene.NumCameras(), kMaxFrames);
+         cam += kSkipFrames) {
+      LOG(ERROR) << ">>Adding image " << cam << "/" << scene.NumCameras();
+      const replay::Camera& camera = scene.GetCamera(cam);
+
+      cv::Mat image = images.Get(camera.GetName()).clone();
+      replay::ExposureAlignment::TransformImageExposure(
+          image, camera.GetExposure(), Eigen::Vector3f(1, 1, 1), &image);
+
+      segmenter.AddImage(image, camera);
+    }
+
+    LOG(ERROR) << "Optimizing...";
+
+    cv::Mat3b partition_image = cv::imread(FLAGS_partition_image);
+    LOG(ERROR) << "Partition image: "
+               << (partition_image.empty() ? "NOT FOUND" : "FOUND");
+    cv::Mat1b partitions(min_composite.size(), 255);
+
+    if (!partition_image.empty()) {
+      for (int row = 0; row < partitions.rows; row++) {
+        for (int col = 0; col < partitions.cols; col++) {
+          if (partition_image(row, col) == cv::Vec3b(0, 0, 255)) {
+            partitions(row, col) = 255;
+          } else {
+            partitions(row, col) = 0;
+          }
+        }
+      }
+      cv::imwrite(replay::JoinPath(FLAGS_output_directory, "partitions.png"),
+                  partitions);
+    }
+
+    CHECK(segmenter.Optimize(mask, partitions));
+
+    cv::Mat3b mask_3c;
+    cv::cvtColor(mask, mask_3c, cv::COLOR_GRAY2BGR);
+
+    cv::imwrite(replay::JoinPath(FLAGS_output_directory,
+                                 "mask_" + std::to_string(it) + ".png"),
+                mask);
+
+    replay::LayerRefiner refiner(max_composite.cols, max_composite.rows);
+    replay::ImageReprojector image_reprojector3(context);
+    cv::destroyAllWindows();
+    for (int cam = 0; cam < std::min(scene.NumCameras(), kMaxFrames);
+         cam += kSkipFrames) {
+      const replay::Camera& camera = scene.GetCamera(cam);
+      cv::Mat image = images.Get(camera.GetName()).clone();
+      cv::Mat1b layer1_mask_reprojected;
+      // context->BindMesh(mesh_id);
+      // image_reprojector3.SetImage(mask);
+      // image_reprojector3.SetSourceCamera(*central_view);
+      layer1_mask_reprojected =
+          replay::OpticalFlowAligner::InverseWarp(mask, flows_to_layer1[cam]);
+      // image_reprojector3.Reproject(camera, &layer1_mask_reprojected, 0.25);
+      cv::Mat3b warped1, warped2;
+      refiner.AddImage(image, flows_to_layer1[cam], flows_to_layer2[cam],
+                       layer1_mask_reprojected);
+    }
+
+    cv::Mat3b first_layer = min_composite.clone();
+    refiner.Optimize(first_layer, max_composite, 5);
+    first_layer.copyTo(min_composite, mask == 255);
+
+    cv::Mat1f alpha(min_composite.size(), 0.0);
+    alpha.setTo(1.0, mask > 0);
+    for (int cam = 0; cam < std::min(scene.NumCameras(), kMaxFrames);
+         cam += kSkipFrames) {
+      const replay::Camera& camera = scene.GetCamera(cam);
+      cv::Mat image = images.Get(camera.GetName()).clone();
+      replay::CompositeMotionRefiner motion_refiner(image.cols, image.rows);
+      // motion_refiner.Optimize(min_composite, max_composite, alpha, image,
+      // flows_to_layer1[cam], flows_to_layer2[cam], 5);
+    }
+
+    for (int cam = 0; cam < std::min(scene.NumCameras(), kMaxFrames);
+         cam += kSkipFrames) {
+      cv::Mat3b diffuse = replay::OpticalFlowAligner::InverseWarp(
+          min_composite, flows_to_layer1[cam]);
+      const replay::Camera& camera = scene.GetCamera(cam);
+      const cv::Mat3b image = images.Get(camera.GetName());
+      const cv::Mat3b residual = image - diffuse;
+      cv::Mat2f refined_flow = flows_to_layer2[cam].clone();
+      greedy_flow.calc(residual, max_composite, refined_flow);
+      cv::Mat3b refined_reprojected =
+          replay::OpticalFlowAligner::InverseWarp(residual, refined_flow);
+      flows_from_layer2[cam] = refined_flow;
+      cv::imwrite(replay::JoinPath(FLAGS_output_directory,
+                                   "per_view_residual_" + std::to_string(it) +
+                                       "_" + camera.GetName()),
+                  residual);
+    }
+
+    cv::imwrite(replay::JoinPath(
+                    FLAGS_output_directory,
+                    "max_composite_optimized_" + std::to_string(it) + ".png"),
+                max_composite);
+    cv::imwrite(replay::JoinPath(
+                    FLAGS_output_directory,
+                    "min_composite_optimized_" + std::to_string(it) + ".png"),
+                min_composite);
+  }
+
   replay::ImageReprojector image_reprojector4(context);
+  replay::ImageReprojector image_reprojector5(context);
   for (int cam = 0; cam < scene.NumCameras(); cam++) {
-    LOG(ERROR) << "Recomposing layer 1 + 2 (" << cam << "/"
-               << scene.NumCameras() << "): " << timer.ElapsedTime() << "ms";
+    replay::PrintProgress(
+        cam + 1, scene.NumCameras(), "Recomposing layers",
+        "- " + std::to_string(static_cast<int>(timer.ElapsedTime())) +
+            " ms / frame");
+
     const replay::Camera& camera = scene.GetCamera(cam);
 
     // Reproject the residual images back into the source viewpoints
     context->BindMesh(mesh_id);
-    cv::Mat3b layer1_mean_reprojected;
-    image_reprojector3.SetImage(layer1_mean);
-    image_reprojector3.SetSourceCamera(*central_view);
-    image_reprojector3.Reproject(camera, &layer1_mean_reprojected, 0.25);
-
     cv::Mat3b layer1_min_reprojected;
-    image_reprojector3.SetImage(layer1_min);
-    image_reprojector3.SetSourceCamera(*central_view);
-    image_reprojector3.Reproject(camera, &layer1_min_reprojected);
+    image_reprojector5.SetImage(min_composite);
+    image_reprojector5.SetSourceCamera(*central_view);
+    image_reprojector5.Reproject(camera, &layer1_min_reprojected, 0.25);
+    cv::imwrite(replay::JoinPath(FLAGS_output_directory,
+                                 "layer1_at_" + camera.GetName()),
+                layer1_min_reprojected);
 
-    cv::Mat3b layer1_mask_reprojected;
-    image_reprojector3.SetImage(layer1_mask);
-    image_reprojector3.SetSourceCamera(*central_view);
-    image_reprojector3.Reproject(camera, &layer1_mask_reprojected);
-    cv::Mat1b specular_mask;
-    cv::cvtColor(layer1_mask_reprojected, specular_mask, cv::COLOR_BGR2GRAY);
+    cv::Mat1b layer1_mask_reprojected;
+    image_reprojector5.SetImage(mask);
+    image_reprojector5.SetSourceCamera(*central_view);
+    image_reprojector5.Reproject(camera, &layer1_mask_reprojected, 0.25);
+    cv::imwrite(
+        replay::JoinPath(FLAGS_output_directory, "mask_at_" + camera.GetName()),
+        layer1_mask_reprojected);
 
-    context->BindMesh(plane_sweep_result.mesh_ids[lowest_mean_index]);
+    context->BindMesh(reflection_mesh_id);
     cv::Mat3b layer2_reprojected;
-    image_reprojector3.SetImage(layer2);
-    image_reprojector3.SetSourceCamera(*central_view);
-    image_reprojector3.Reproject(camera, &layer2_reprojected);
+    image_reprojector4.SetImage(max_composite);
+    image_reprojector4.SetSourceCamera(*central_view);
+    image_reprojector4.Reproject(camera, &layer2_reprojected);
+    cv::imwrite(replay::JoinPath(FLAGS_output_directory,
+                                 "layer2_at_" + camera.GetName()),
+                layer2_reprojected);
 
-    // cv::Mat3b residual = cv::imread(replay::JoinPath(
-    // FLAGS_output_directory, "per_view_residual_" + camera.GetName()));
-    // cv::Mat3b residual_central;
-    // context->BindMesh(plane_sweep_result.mesh_ids[lowest_mean_index]);
-    // image_reprojector4.SetImage(residual);
-    // image_reprojector4.SetSourceCamera(camera);
-    // image_reprojector4.Reproject(*central_view, &residual_central);
-    // cv::imwrite(replay::JoinPath(FLAGS_output_directory,
-    //"aligned_residual_" + camera.GetName()),
-    // residual_central);
+    // cv::Mat3b composed = layer1_mean_reprojected + layer2_reprojected;
 
-    cv::Mat3b composed = layer1_mean_reprojected + layer2_reprojected;
-    layer1_mean_reprojected.copyTo(composed, specular_mask == 0);
+    layer2_reprojected.setTo(0, layer1_mask_reprojected == 0);
+    cv::Mat3b composed(layer2_reprojected.size());
+    cv::add(layer2_reprojected, layer1_min_reprojected, composed);
     cv::imwrite(replay::JoinPath(FLAGS_output_directory,
                                  "composed_" + camera.GetName()),
                 composed);
   }
 
-  // Reproject all the residual images to the central viewpoint using the
-  // aligned geometry
-
-  // Determine the per-pixel variance
-
-  //
+  return 0;
 }
-// LOG(ERROR) << "Starting loop";
-// for (int i = start_index; i < end_index; i++) {
-//// Set the interpolated position.
-// cv::Mat3b output;
-// const replay::Camera& camera = scene.GetCamera(i);
-// cv::Mat image = images.Get(camera.GetName()).clone();
-// replay::ExposureAlignment::TransformImageExposure(
-// image, camera.GetExposure(), Eigen::Vector3f(1, 1, 1), &image);
-// context->BindMesh(mesh_id);
-// LOG(ERROR) << "Rendering diffuse";
-//// output = capreal_cache.Get("/diffuse_" + camera.GetName());
-//// if (output.empty()) {
-// CHECK(renderer.RenderView(scene.GetCamera(i), &output));
-////}
-//// output = aligner.Align(output, image);
-
-// cv::imwrite(FLAGS_output_directory + "/diffuse_" + camera.GetName(),
-// output);
-// cv::imwrite(FLAGS_output_directory + "/orig_" + camera.GetName(), image);
-// cv::Mat3b minc;
-// LOG(ERROR) << "Getting min composite";
-// minc = min_composite_cache.Get("/minc_" + camera.GetName());
-// if (minc.empty()) {
-// CHECK(min_compositor.GetMinComposite(scene, images, scene.GetCamera(i),
-//&minc));
-//}
-// LOG(ERROR) << "Got min composite";
-//// minc = aligner.Align(minc, image);
-// cv::imwrite(FLAGS_output_directory + "/minc_" + camera.GetName(), minc);
-// cv::Mat3f ift, oft;
-// cv::Mat3f mft;
-// image.convertTo(ift, CV_32FC3);
-// output.convertTo(oft, CV_32FC3);
-// minc.convertTo(mft, CV_32FC3);
-// cv::pow(ift, 2.2, ift);
-// cv::pow(oft, 2.2, oft);
-// cv::pow(mft, 2.2, mft);
-// cv::Mat3b specular = min_difference.GetDifference(image, output, 10);
-// cv::Mat3b specular_m = min_difference.GetDifference(image, minc, 10);
-// cv::imwrite(FLAGS_output_directory + "/specular_" + camera.GetName(),
-// specular);
-// cv::imwrite(FLAGS_output_directory + "/res_minc_" + camera.GetName(),
-// specular_m);
-
-// cv::Mat global;
-// cv::Mat1b valid_reflections;
-// if (window_mesh_id >= 0) {
-// replay::DepthMap map;
-// context->BindMesh(window_mesh_id);
-// depth_renderer.GetDepthMap(camera, &map);
-// context->BindMesh(mesh_id);
-//// map.WriteDepthAsRGB("output/test.png");
-// valid_reflections = map.Depth() > 0;
-// specular_m.setTo(0, valid_reflections == 0);
-//}
-
-// k++;
-//}
-
-// const replay::Camera& center_view2 =
-// scene.GetCamera(scene.NumCameras() / 2 + 5);
-// float window_depth = 0;
-// cv::Mat1b valid_pixels1(center_view.GetImageSize()[1],
-// center_view.GetImageSize()[0], 255);
-// cv::Mat1b valid_pixels2(center_view2.GetImageSize()[1],
-// center_view2.GetImageSize()[0], 255);
-// if (window_mesh_id >= 0) {
-// replay::DepthMap map;
-// context->BindMesh(window_mesh_id);
-// depth_renderer.GetDepthMap(center_view, &map);
-// window_depth = cv::mean(map.Depth(), map.Depth() > 0)[0];
-// valid_pixels1 = map.Depth() > 0;
-// depth_renderer.GetDepthMap(center_view2, &map);
-// valid_pixels2 = map.Depth() > 0;
-//} else {
-// replay::DepthMap map;
-// context->BindMesh(mesh_id);
-// depth_renderer.GetDepthMap(center_view, &map);
-// window_depth = cv::mean(map.Depth(), map.Depth() > 0)[0];
-//}
-
-// replay::Camera* maxc_view = center_view.Clone();
-// Eigen::Vector2d fov = maxc_view->GetFOV();
-// LOG(ERROR) << "FOV: " << fov;
-// maxc_view->SetFocalLengthFromFOV(Eigen::Vector2d(fov.x() * 2, fov.y()));
-// maxc_view->SetImageSize(Eigen::Vector2i(1920 * 2, 1080));
-
-// cv::Mat3b img1 =
-// cv::imread(FLAGS_output_directory + "/res_minc_" + center_view.GetName());
-// cv::Mat3b img2 = cv::imread(FLAGS_output_directory + "/res_minc_" +
-// center_view2.GetName());
-// LOG(ERROR) << "Window depth: " << window_depth;
-// auto volume =
-// ps.Sweep(center_view, center_view2, img1, valid_pixels1, img2,
-// valid_pixels2, window_depth * 2, window_depth * 10, 100);
-// double minval, maxval;
-// cv::minMaxLoc(volume.begin()->second, &minval, &maxval);
-// float best = -1;
-// float best_mean = 999999;
-// for (auto plane : volume) {
-// float mean = cv::mean(plane.second, plane.second > 0.0)[0];
-// if (mean < best_mean) {
-// best_mean = mean;
-// best = plane.first;
-//}
-// cv::imwrite(FLAGS_output_directory + "/sweep_" +
-// std::to_string(plane.first) + ".png",
-// plane.second* 255.0 /= maxval);
-//}
-// cv::imwrite(
-// FLAGS_output_directory + "/sweep_best_" + std::to_string(best) + ".png",
-// volume[best]* 255.0 /= maxval);
-
-// Eigen::Vector3f plane_center = center_view.GetPosition().cast<float>() +
-// center_view.GetLookAt().cast<float>() * best;
-// replay::Mesh reflection_proxy = replay::Mesh::Plane(
-// plane_center, center_view.GetLookAt().cast<float>().normalized(),
-// Eigen::Vector2f(best * 10, best * 10));
-// reflection_proxy.Save(
-// replay::JoinPath(FLAGS_output_directory, "reflection.ply"));
-
-// int reflection_mesh_id = context->UploadMesh(reflection_proxy);
-// context->BindMesh(reflection_mesh_id);
-
-// cv::Mat3b max_reflection(maxc_view->GetImageSize().y(),
-// maxc_view->GetImageSize().x(), cv::Vec3b(0, 0, 0));
-
-// k = 0;
-// replay::SumAbsoluteDifference<cv::Vec3b> sad(context);
-// for (int i = start_index; i < end_index; i++) {
-// cv::Mat1b valid_reflections;
-// const replay::Camera& camera = scene.GetCamera(i);
-// if (window_mesh_id >= 0) {
-// replay::DepthMap map;
-// context->BindMesh(window_mesh_id);
-// depth_renderer.GetDepthMap(camera, &map);
-// valid_reflections = map.Depth() > 0;
-//}
-// cv::Mat3b reprojected_reflection;
-
-// cv::Mat3b reflection =
-// cv::imread(FLAGS_output_directory + "/res_minc_" + camera.GetName());
-// if (!valid_reflections.empty()) {
-// reflection.setTo(0, valid_reflections == 0);
-//}
-// context->BindMesh(reflection_mesh_id);
-// image_reprojector.SetImage(reflection);
-// image_reprojector.SetSourceCamera(camera);
-// image_reprojector.Reproject(*maxc_view, &reprojected_reflection);
-// cv::Mat1b valid_reprojected;
-// cv::inRange(reprojected_reflection, cv::Scalar(1, 1, 1),
-// cv::Scalar(255, 255, 255), valid_reprojected);
-// cv::Mat1b valid_max;
-// cv::inRange(max_reflection, cv::Scalar(1, 1, 1), cv::Scalar(255, 255, 255),
-// valid_max);
-// cv::Mat1f cost = sad.GetDifference(reprojected_reflection, max_reflection,
-// valid_reprojected, valid_max);
-// cost.setTo(0, cost > 900);
-// cv::imshow("cost", cost);
-// cv::imshow("thresh", cost < 0.1);
-
-// cv::imwrite(FLAGS_output_directory + "/global_ref_" + camera.GetName(),
-// reprojected_reflection);
-// cv::imshow("repro", reprojected_reflection);
-// cv::Mat3b masked(reprojected_reflection.rows, reprojected_reflection.cols,
-// cv::Vec3b(0, 0, 0));
-// reprojected_reflection.copyTo(masked, cost < 0.1);
-// cv::imshow("repro_masked", masked);
-// max_reflection = cv::max(max_reflection, masked);
-// cv::imshow("max", max_reflection);
-// cv::waitKey();
-// k++;
-//}
-// k = 0;
-// for (int i = start_index; i < end_index; i++) {
-// const replay::Camera& camera = scene.GetCamera(i);
-// cv::Mat1b valid_reflections;
-// cv::Mat3b reprojected_reflection;
-// context->BindMesh(reflection_mesh_id);
-// image_reprojector.SetImage(max_reflection);
-// image_reprojector.SetSourceCamera(*maxc_view);
-// image_reprojector.Reproject(camera, &reprojected_reflection);
-// if (window_mesh_id >= 0) {
-// replay::DepthMap map;
-// context->BindMesh(window_mesh_id);
-// depth_renderer.GetDepthMap(camera, &map);
-// valid_reflections = map.Depth() > 0;
-//}
-// if (!valid_reflections.empty()) {
-// reprojected_reflection.setTo(0, valid_reflections == 0);
-//}
-// cv::Mat3b diffuse =
-// cv::imread(FLAGS_output_directory + "/diffuse_" + camera.GetName());
-// cv::Mat3b minc =
-// cv::imread(FLAGS_output_directory + "/minc_" + camera.GetName());
-// cv::imwrite(FLAGS_output_directory + "/mcomposed_" + camera.GetName(),
-// reprojected_reflection + minc);
-// cv::imwrite(FLAGS_output_directory + "/composed_" + camera.GetName(),
-// reprojected_reflection + diffuse);
-//}
-// cv::imwrite(FLAGS_output_directory + "/max_reflection.png", max_reflection);
-//}

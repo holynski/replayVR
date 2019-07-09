@@ -95,18 +95,15 @@ int main(int argc, char* argv[]) {
   Eigen::Vector2d fov = central_view->GetFOV();
   central_view->SetFocalLengthFromFOV(Eigen::Vector2d(fov.x() * 2, fov.y()));
 
+  const int downscale_factor = 1;
   central_view->SetImageSize(Eigen::Vector2i(1920 * 2, 1080));
-  central_view->SetImageSize(Eigen::Vector2i(1920 / 2, 1080 / 4));
+  central_view->SetImageSize(
+      Eigen::Vector2i(2 * 1920 / downscale_factor, 1080 / downscale_factor));
 
   cv::resize(first_layer_image, first_layer_image,
-             cv::Size(1920 / 2, 1080 / 4));
+             cv::Size(2 * 1920 / downscale_factor, 1080 / downscale_factor));
   cv::resize(second_layer_image, second_layer_image,
-             cv::Size(1920 / 2, 1080 / 4));
-
-  /*
-   *
-   *
-   */
+             cv::Size(2 * 1920 / downscale_factor, 1080 / downscale_factor));
 
   replay::Mesh first_layer_mesh;
   CHECK(first_layer_mesh.Load(FLAGS_first_layer_mesh));
@@ -121,66 +118,18 @@ int main(int argc, char* argv[]) {
       std::make_shared<replay::OpenGLContext>();
   CHECK(context->Initialize());
 
-  replay::FlowFromReprojection flow_reprojection(context);
-  int first_layer_id = context->UploadMesh(first_layer_mesh);
-  int second_layer_id = context->UploadMesh(second_layer_mesh);
-
-  replay::LayerRefiner refiner(first_layer_image.cols, first_layer_image.rows);
-  cv::Mat1f alpha(first_layer_image.size(), -1.0);
-  for (int cam = 0; cam < scene.NumCameras(); cam += 10) {
+  replay::LayerRefiner refiner(context, *central_view, first_layer_mesh,
+                               second_layer_mesh);
+  cv::Mat1f alpha(first_layer_image.size(), 1.0);
+  for (int cam = 0; cam < scene.NumCameras(); cam += 20) {
     LOG(ERROR) << "Adding image " << cam << "/" << scene.NumCameras();
     const replay::Camera& camera = scene.GetCamera(cam);
-
-    context->BindMesh(first_layer_id);
-    cv::Mat2f layer1_flow = flow_reprojection.Calculate(camera, *central_view);
-    cv::Mat2f layer1_flow_reverse =
-        flow_reprojection.Calculate(*central_view, camera);
-    context->BindMesh(second_layer_id);
-    cv::Mat2f layer2_flow = flow_reprojection.Calculate(camera, *central_view);
-    double min, max;
-    cv::minMaxLoc(layer2_flow, &min, &max);
-    if (min == FLT_MAX) {
-      LOG(ERROR) << "Skipping...flow all invalid";
-      continue;
-    }
 
     cv::Mat image = images.Get(camera.GetName()).clone();
     replay::ExposureAlignment::TransformImageExposure(
         image, camera.GetExposure(), Eigen::Vector3f(1, 1, 1), &image);
 
-    // Warp both layers to this viewpoint so we can figure out an initial value
-    // for alpha
-    cv::Mat3b layer1_at_image =
-        replay::OpticalFlowAligner::InverseWarp(first_layer_image, layer1_flow);
-
-    cv::Mat3b layer2_at_image = replay::OpticalFlowAligner::InverseWarp(
-        second_layer_image, layer2_flow);
-
-    cv::Mat3f residual(image.size());
-    cv::subtract(image, layer1_at_image, residual, cv::noArray(), CV_32F);
-    residual.setTo(0, residual < 0);
-    cv::Mat3f alpha_at_image_3_channel(image.size());
-    cv::divide(residual, layer2_at_image, alpha_at_image_3_channel, 1, CV_32F);
-    alpha_at_image_3_channel.setTo(0, layer2_at_image == 0);
-    cv::Mat1f alpha_at_image;
-    cv::cvtColor(alpha_at_image_3_channel, alpha_at_image, cv::COLOR_BGR2GRAY);
-
-    cv::Mat1f alpha_guess = replay::OpticalFlowAligner::InverseWarp(
-        alpha_at_image, layer1_flow_reverse);
-    alpha_guess = 1 - alpha_guess;
-    alpha_guess.copyTo(alpha, alpha <= 0.0);
-
-    refiner.AddImage(image, layer1_flow, layer2_flow);
-
-    layer1_flow.setTo(0, layer1_flow == FLT_MAX);
-    layer2_flow.setTo(0, layer2_flow == FLT_MAX);
-
-    cv::imwrite(replay::JoinPath(FLAGS_output_directory,
-                                 "layer1_flow_" + camera.GetName()),
-                replay::FlowToColor(layer1_flow));
-    cv::imwrite(replay::JoinPath(FLAGS_output_directory,
-                                 "layer2_flow_" + camera.GetName()),
-                replay::FlowToColor(layer2_flow));
+    refiner.AddImage(image, camera);
   }
 
   cv::imwrite(replay::JoinPath(FLAGS_output_directory, "initial_alpha.png"),

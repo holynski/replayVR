@@ -1,27 +1,16 @@
+Change layer refiner to be heirarchical
+
 Fix the window resizing code
 
-Test on other sequences
-Fix the RenderToTexture to make min composite faster
+Fix the RenderToTexture
+Fix UpdateTexture
 
-Add plane sweep
+Add plane fitting function
+Add function to take plane sweep results and create non-fronto-parallel plane
 
-Add plane fitting to determine dominant axis
-
-Add exposure alignment to diffuse images
+Layer Refiner seems to work on only 1 image size?
 
 # Write a video writer w/ metadata
-# Incorporate a universal dialog file picker
-# Write a VR180 undistorter
 # Incorporate theia & Ceres (lite / mac only / separate build components)
-# Incorporate spherical sfm
-#
-#
-# Set principal point
-# Check intrinsics extrinsics
-# Add mesh viewer (trackball)
-# Create frustum mesh
 
-Today:
-# Write undistorter, write file dumper, run through spherical stuff, figure out BA
-#
-# Write sample test renderer
+# Add mesh viewer (trackball)

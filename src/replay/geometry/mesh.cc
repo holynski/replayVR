@@ -1,4 +1,4 @@
-#include "replay/mesh/mesh.h"
+#include "replay/geometry/mesh.h"
 
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #include <CGAL/Polygon_mesh_processing/compute_normal.h>

@@ -43,8 +43,8 @@ cv::Mat3b VisualizeMatches(const cv::Mat3b& image1,
   return canvas;
 }
 
-VideoTracker::VideoTracker(const VideoTrackerOptions& options)
-    : options_(options) {}
+VideoTracker::VideoTracker(const VideoTrackerOptions options)
+    : options_(options), last_camera_(nullptr) {}
 
 const std::vector<TrackedPoint*>& VideoTracker::TrackFrame(
     const cv::Mat3b& frame, const Camera* camera) {
@@ -65,6 +65,7 @@ const std::vector<TrackedPoint*>& VideoTracker::TrackFrame(
     std::vector<cv::Point2f> tracked_points;
     std::vector<unsigned char> tracking_status;
     std::vector<float> flow_error;
+    CHECK_GT(points.size(), 0);
     cv::calcOpticalFlowPyrLK(
         last_image_, frame_gray, points, tracked_points, tracking_status,
         flow_error, cv::Size(options_.window_size, options_.window_size));
@@ -73,6 +74,7 @@ const std::vector<TrackedPoint*>& VideoTracker::TrackFrame(
     std::vector<cv::Point2f> reverse_tracked_points;
     std::vector<unsigned char> reverse_tracking_status;
     std::vector<float> backward_error;
+    CHECK_GT(tracked_points.size(), 0);
     cv::calcOpticalFlowPyrLK(
         frame_gray, last_image_, tracked_points, reverse_tracked_points,
         reverse_tracking_status, backward_error,
@@ -89,9 +91,10 @@ const std::vector<TrackedPoint*>& VideoTracker::TrackFrame(
           tracked_points[i].x >= 0 && tracked_points[i].y >= 0 &&
           tracked_points[i].x < frame.cols &&
           tracked_points[i].y < frame.rows && squared_cycle_error <= 1.0 &&
-          camera->AngleFromOpticalAxis(camera->UnprojectPoint(
-              Eigen::Vector2d(tracked_points[i].x, tracked_points[i].y), 1)) <
-              options_.max_angle_from_optical_axis) {
+          (camera->AngleFromOpticalAxis(camera->UnprojectPoint(
+               Eigen::Vector2d(tracked_points[i].x, tracked_points[i].y), 1)) <
+               options_.max_angle_from_optical_axis ||
+           options_.max_angle_from_optical_axis <= 0.0)) {
         active_points_[i]->SetObservation(camera, tracked_points[i]);
       } else {
         mark_for_deletion[i] = true;
@@ -122,19 +125,27 @@ const std::vector<TrackedPoint*>& VideoTracker::TrackFrame(
     }
 
     // Refine the locations of these features.
-    cv::cornerSubPix(
-        frame_gray, new_points, cv::Size(10, 10), cv::Size(-1, -1),
-        cv::TermCriteria(cv::TermCriteria::Type::EPS + cv::TermCriteria::Type::COUNT, 40, 0.001));
+    cv::cornerSubPix(frame_gray, new_points, cv::Size(10, 10), cv::Size(-1, -1),
+                     cv::TermCriteria(cv::TermCriteria::Type::EPS +
+                                          cv::TermCriteria::Type::COUNT,
+                                      40, 0.001));
     for (int i = 0; i < new_points.size(); i++) {
       Eigen::Vector2d point2d(new_points[i].x, new_points[i].y);
-      Eigen::Vector3d point3d = camera->UnprojectPoint(point2d, 1);
-      double angle = camera->AngleFromOpticalAxis(point3d);
-      if (angle < options_.max_angle_from_optical_axis) {
-        TrackedPoint* point = new TrackedPoint();
-        active_points_.push_back(point);
-        all_points_.push_back(point);
-        point->SetObservation(camera, new_points[i]);
+      if (new_points[i].x >= 0 && new_points[i].y >= 0 &&
+          new_points[i].x < frame.cols && new_points[i].y < frame.rows) {
+        Eigen::Vector3d point3d = camera->UnprojectPoint(point2d, 1);
+        double angle = camera->AngleFromOpticalAxis(point3d);
+        if (angle < options_.max_angle_from_optical_axis ||
+            options_.max_angle_from_optical_axis <= 0.0) {
+          TrackedPoint* point = new TrackedPoint();
+          active_points_.push_back(point);
+          all_points_.push_back(point);
+          point->SetObservation(camera, new_points[i]);
+        }
       }
+    }
+    if (active_points_.size() == 0) {
+      LOG(ERROR) << "Tried adding new points, but didn't find any!";
     }
   }
 
@@ -185,9 +196,10 @@ const std::vector<TrackedPoint*>& VideoTracker::MatchReference(
           tracked_points[i].x >= 0 && tracked_points[i].y >= 0 &&
           tracked_points[i].x < frame.cols &&
           tracked_points[i].y < frame.rows && squared_cycle_error <= 1.0 &&
-          camera->AngleFromOpticalAxis(camera->UnprojectPoint(
-              Eigen::Vector2d(tracked_points[i].x, tracked_points[i].y), 1)) <
-              options_.max_angle_from_optical_axis) {
+          (camera->AngleFromOpticalAxis(camera->UnprojectPoint(
+               Eigen::Vector2d(tracked_points[i].x, tracked_points[i].y), 1)) <
+               options_.max_angle_from_optical_axis ||
+           options_.max_angle_from_optical_axis <= 0.0)) {
         active_points_[i]->SetObservation(camera, tracked_points[i]);
       }
     }
@@ -265,6 +277,22 @@ std::vector<Eigen::Vector2d> VideoTracker::GetKeypointsForFrame(
     }
   }
   return points_eigen;
+}
+
+int VideoTracker::GetMatchingKeypoints(
+    const Camera* camera1, const Camera* camera2,
+    std::vector<Eigen::Vector2d>* points1,
+    std::vector<Eigen::Vector2d>* points2) const {
+  points1->clear();
+  points2->clear();
+  for (int i = 0; i < all_points_.size(); i++) {
+    if (all_points_[i]->HasObservation(camera1) &&
+        all_points_[i]->HasObservation(camera2)) {
+      points1->emplace_back(all_points_[i]->GetObservation(camera1).head<2>());
+      points2->emplace_back(all_points_[i]->GetObservation(camera2).head<2>());
+    }
+  }
+  return points1->size();
 }
 
 }  // namespace replay

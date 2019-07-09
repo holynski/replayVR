@@ -4,7 +4,7 @@
 #include <math.h>
 #include <replay/vr_180/mesh_projection_parser.h>
 #include <replay/io/zlib_decompressor.h>
-#include <replay/mesh/mesh.h>
+#include <replay/geometry/mesh.h>
 #include <replay/io/byte_stream_reader.h>
 #include <replay/io/stream_reader.h>
 #include <algorithm>

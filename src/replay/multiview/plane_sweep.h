@@ -14,6 +14,7 @@ namespace replay {
 struct PlaneSweepResult {
   std::vector<float> depths;
   std::unordered_map<float, cv::Mat1f> cost_volume;
+  std::unordered_map<float, cv::Mat1f> num_samples;
   std::unordered_map<float, cv::Mat3b> mean_images;
   std::unordered_map<float, cv::Mat3b> max_images;
   std::unordered_map<float, cv::Mat3b> min_images;

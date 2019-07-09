@@ -17,6 +17,7 @@ class ImageStackAnalyzer {
   ImageStackAnalyzer(Options options = Options());
   void AddImage(const cv::Mat& image, const cv::Mat1b& mask);
   cv::Mat GetVariance() const;
+  cv::Mat GetCount() const;
   cv::Mat GetMean() const;
   cv::Mat GetMedian() const;
   cv::Mat GetMin() const;
