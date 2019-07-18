@@ -13,13 +13,15 @@ class LayerRefiner {
   LayerRefiner(const int width, const int height);
 
   bool AddImage(const cv::Mat3b& image, const cv::Mat2f& flow_layer1,
-                const cv::Mat2f& flow_layer2, const cv::Mat1b& mask);
+                const cv::Mat2f& flow_layer2, const cv::Mat3b& layer1_img,
+                const cv::Mat3b& layer2_img, const cv::Mat1f& alpha_img);
 
-  bool Optimize(cv::Mat3b& layer1_img, cv::Mat3b& layer2_img,
+  bool Optimize(cv::Mat3b& layer1_img, cv::Mat3b& layer2_img, cv::Mat1f& alpha,
                 const int num_iterations);
 
  private:
-  bool GradientDescent(cv::Mat3b& layer1_img, cv::Mat3b& layer2_img);
+  double GradientDescent(cv::Mat3b& layer1_img, cv::Mat3b& layer2_img,
+                       cv::Mat1f& alpha);
   const int width_;
   const int height_;
   std::vector<Eigen::Triplet<double>> triplets_;

@@ -74,6 +74,10 @@ cv::Mat3b FlowToColor(const cv::Mat2f& flow) {
         continue;
       }
       float radius = cv::norm(flow(row, col));
+      if (radius != radius ||
+          radius == std::numeric_limits<float>::infinity()) {
+        continue;
+      }
       max_radius = std::fmax(radius, max_radius);
     }
   }

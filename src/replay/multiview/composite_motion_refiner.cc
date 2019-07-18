@@ -108,26 +108,23 @@ bool CompositeMotionRefiner::Optimize(const cv::Mat3b& layer1_img,
   cv::imshow("layer1_before", replay::FlowToColor(layer1));
   cv::imshow("layer2_before", replay::FlowToColor(layer2));
   for (int i = 0; i < num_iterations; ++i) {
-    if (!GradientDescent(layer1_img, layer2_img, alpha_img, composite, layer1,
-                         layer2)) {
-      return false;
-    }
+    GradientDescent(layer1_img, layer2_img, alpha_img, composite, layer1,
+                    layer2);
     cv::imshow("layer1", replay::FlowToColor(layer1));
     cv::imshow("layer2", replay::FlowToColor(layer2));
     cv::waitKey(1);
   }
   return true;
-}
+}  // namespace replay
 
-bool CompositeMotionRefiner::GradientDescent(const cv::Mat3b& layer1_img,
-                                             const cv::Mat3b& layer2_img,
-                                             const cv::Mat1f& alpha_img,
-                                             const cv::Mat3b& composite,
-                                             cv::Mat2f& layer1,
-                                             cv::Mat2f& layer2) {
+double CompositeMotionRefiner::GradientDescent(const cv::Mat3b& layer1_img,
+                                               const cv::Mat3b& layer2_img,
+                                               const cv::Mat1f& alpha_img,
+                                               const cv::Mat3b& composite,
+                                               cv::Mat2f& layer1,
+                                               cv::Mat2f& layer2) {
   if (layer1.rows != layer2.rows || layer1.cols != layer2.cols) {
-    LOG(ERROR) << "Layer sizes must be identical";
-    return false;
+    LOG(FATAL) << "Layer sizes must be identical";
   }
 
   std::vector<Eigen::Triplet<double>> triplets = triplets_;
@@ -144,6 +141,10 @@ bool CompositeMotionRefiner::GradientDescent(const cv::Mat3b& layer1_img,
 
       // Vhat^t_B
       const cv::Vec2f& layer2_flow = layer2(y, x);
+
+      if (cv::norm(layer1_flow) > 1e6 || cv::norm(layer2_flow) > 1e6) {
+        continue;
+      }
 
       // x
       const cv::Vec2f coord(x, y);
@@ -366,7 +367,7 @@ bool CompositeMotionRefiner::GradientDescent(const cv::Mat3b& layer1_img,
   Eigen::ConjugateGradient<Eigen::SparseMatrix<double, 0, std::ptrdiff_t>,
                            Eigen::Lower | Eigen::Upper>
       solver;
-  solver.setMaxIterations(250);
+  solver.setMaxIterations(1);
   solver.setTolerance(1e-6);
   solver.compute(AtA);
   solution = solver.solveWithGuess(Atb, guess);
@@ -380,11 +381,17 @@ bool CompositeMotionRefiner::GradientDescent(const cv::Mat3b& layer1_img,
   for (int i = 0; i < static_cast<int>(vars_to_pixels_.size()); ++i)
     for (int c = 0; c < 2; ++c) {
       Eigen::Vector2i coords = vars_to_pixels_[i];
-      layer1(coords.y(), coords.x())[c] = solution(i * 4 + c + 0);
-      layer2(coords.y(), coords.x())[c] = solution(i * 4 + c + 2);
+      layer1(coords.y(), coords.x())[c] =
+          std::fmax(layer1(coords.y(), coords.x())[c] - 1,
+                    std::fmin(layer1(coords.y(), coords.x())[c] + 1,
+                              solution(i * 4 + c + 0)));
+      layer2(coords.y(), coords.x())[c] =
+          std::fmax(layer2(coords.y(), coords.x())[c] - 1,
+                    std::fmin(layer2(coords.y(), coords.x())[c] + 1,
+                              solution(i * 4 + c + 2)));
     }
 
-  return true;
+  return solver.error();
 }
 
 }  // namespace replay

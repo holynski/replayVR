@@ -19,6 +19,7 @@ set(REPLAY_SRC
   depth_map/depth_map.cc
   flow/flow_from_reprojection.cc
   flow/greedy_flow.cc
+  flow/optical_flow.cc
   flow/optical_flow_aligner.cc
   flow/optical_flow_calculator.cc
   flow/visualization.cc

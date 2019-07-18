@@ -4,6 +4,7 @@
 #include <replay/camera/pinhole_camera.h>
 #include <replay/flow/flow_from_reprojection.h>
 #include <replay/flow/greedy_flow.h>
+#include <replay/flow/optical_flow.h>
 #include <replay/flow/optical_flow_aligner.h>
 #include <replay/flow/visualization.h>
 #include <replay/geometry/plane.h>
@@ -45,8 +46,10 @@ DEFINE_string(window_mesh, "", "");
 DEFINE_string(min_composite, "", "");
 DEFINE_string(depth_cache, "", "");
 
-static const int kSkipFrames = 3;
-static const int kMaxFrames = 30;
+static const int kSkipFrames = 1;
+static const int kMaxFrames = 5;
+static const int kNumPyramidLevels = 4;
+static const int kNumIterationsPerLevel = 4;
 
 int main(int argc, char* argv[]) {
   google::InitGoogleLogging(argv[0]);
@@ -483,7 +486,7 @@ int main(int argc, char* argv[]) {
   smallest_variance.setTo(max, reflected_depth <= 0);
   smallest_variance.setTo(max, mean <= 20);
   smallest_variance.setTo(max, smallest_variance > std::pow(50, 2));
-  cv::waitKey();
+  cv::waitKey(1);
 
   std::vector<Eigen::Vector3f> reflected_points;
 
@@ -553,7 +556,7 @@ int main(int argc, char* argv[]) {
                                     "per_view_residual_0_" + camera.GetName()));
     context->BindMesh(reflection_mesh_id);
 
-    cv::Mat3b refined_reprojected = replay::OpticalFlowAligner::InverseWarp(
+    cv::Mat3b refined_reprojected = replay::OpticalFlow::InverseWarp(
         residual_perview, flows_from_layer2[cam]);
 
     cv::imwrite(replay::JoinPath(FLAGS_output_directory,
@@ -595,114 +598,179 @@ int main(int argc, char* argv[]) {
   // replay::LayerRefiner refiner(context, *central_view, mesh,
   // plane_sweep_result.meshes[lowest_mean_index]);
   cv::Mat1b mask(max_composite.size(), 0.0);
-  static const int kNumLayer2MotionIterations = 8;
-  for (int it = kNumLayer2MotionIterations; it >= 1; it++) {
-    const float kDownscaleFactor = std::pow(2, it);
-    LOG(ERROR) << "Refinement iteration " << it;
-    replay::ReflectionSegmenter segmenter(context, *central_view, min_composite,
-                                          max_composite, mesh, reflection_mesh);
-    for (int cam = 0; cam < std::min(scene.NumCameras(), kMaxFrames);
-         cam += kSkipFrames) {
-      LOG(ERROR) << ">>Adding image " << cam << "/" << scene.NumCameras();
-      const replay::Camera& camera = scene.GetCamera(cam);
 
-      cv::Mat image = images.Get(camera.GetName()).clone();
-      replay::ExposureAlignment::TransformImageExposure(
-          image, camera.GetExposure(), Eigen::Vector3f(1, 1, 1), &image);
+  replay::ReflectionSegmenter segmenter(context, *central_view, min_composite,
+                                        max_composite, mesh, reflection_mesh);
+  for (int cam = 0; cam < std::min(scene.NumCameras(), kMaxFrames);
+       cam += kSkipFrames) {
+    LOG(ERROR) << ">>Adding image " << cam << "/" << scene.NumCameras();
+    const replay::Camera& camera = scene.GetCamera(cam);
 
-      segmenter.AddImage(image, camera);
-    }
+    cv::Mat image = images.Get(camera.GetName()).clone();
+    replay::ExposureAlignment::TransformImageExposure(
+        image, camera.GetExposure(), Eigen::Vector3f(1, 1, 1), &image);
 
-    LOG(ERROR) << "Optimizing...";
+    segmenter.AddImage(image, camera);
+  }
 
-    cv::Mat3b partition_image = cv::imread(FLAGS_partition_image);
-    LOG(ERROR) << "Partition image: "
-               << (partition_image.empty() ? "NOT FOUND" : "FOUND");
-    cv::Mat1b partitions(min_composite.size(), 255);
+  LOG(ERROR) << "Optimizing...";
 
-    if (!partition_image.empty()) {
-      for (int row = 0; row < partitions.rows; row++) {
-        for (int col = 0; col < partitions.cols; col++) {
-          if (partition_image(row, col) == cv::Vec3b(0, 0, 255)) {
-            partitions(row, col) = 255;
-          } else {
-            partitions(row, col) = 0;
-          }
+  cv::Mat3b partition_image = cv::imread(FLAGS_partition_image);
+  LOG(ERROR) << "Partition image: "
+             << (partition_image.empty() ? "NOT FOUND" : "FOUND");
+  cv::Mat1b partitions(min_composite.size(), 255);
+
+  if (!partition_image.empty()) {
+    for (int row = 0; row < partitions.rows; row++) {
+      for (int col = 0; col < partitions.cols; col++) {
+        if (partition_image(row, col) == cv::Vec3b(0, 0, 255)) {
+          partitions(row, col) = 255;
+        } else {
+          partitions(row, col) = 0;
         }
       }
-      cv::imwrite(replay::JoinPath(FLAGS_output_directory, "partitions.png"),
-                  partitions);
     }
+    cv::imwrite(replay::JoinPath(FLAGS_output_directory, "partitions.png"),
+                partitions);
+  }
 
-    CHECK(segmenter.Optimize(mask, partitions));
+  CHECK(segmenter.Optimize(mask, partitions));
 
-    cv::Mat3b mask_3c;
-    cv::cvtColor(mask, mask_3c, cv::COLOR_GRAY2BGR);
+  cv::Mat3b mask_3c;
+  cv::cvtColor(mask, mask_3c, cv::COLOR_GRAY2BGR);
 
-    cv::imwrite(replay::JoinPath(FLAGS_output_directory,
-                                 "mask_" + std::to_string(it) + ".png"),
-                mask);
+  cv::imwrite(replay::JoinPath(FLAGS_output_directory, "mask.png"), mask);
 
-    replay::LayerRefiner refiner(max_composite.cols, max_composite.rows);
-    replay::ImageReprojector image_reprojector3(context);
-    cv::destroyAllWindows();
+  std::unordered_map<int, cv::Size> layer_pyramid_sizes;
+  std::unordered_map<int, std::unordered_map<int, cv::Size>>
+      image_pyramid_sizes;
+
+  for (int it = 0; it <= kNumPyramidLevels; it++) {
+    const int downscale_factor = std::pow(2, it);
+    layer_pyramid_sizes[it] = min_composite.size() / downscale_factor;
     for (int cam = 0; cam < std::min(scene.NumCameras(), kMaxFrames);
          cam += kSkipFrames) {
       const replay::Camera& camera = scene.GetCamera(cam);
-      cv::Mat image = images.Get(camera.GetName()).clone();
-      cv::Mat1b layer1_mask_reprojected;
-      // context->BindMesh(mesh_id);
-      // image_reprojector3.SetImage(mask);
-      // image_reprojector3.SetSourceCamera(*central_view);
-      layer1_mask_reprojected =
-          replay::OpticalFlowAligner::InverseWarp(mask, flows_to_layer1[cam]);
-      // image_reprojector3.Reproject(camera, &layer1_mask_reprojected, 0.25);
-      cv::Mat3b warped1, warped2;
-      refiner.AddImage(image, flows_to_layer1[cam], flows_to_layer2[cam],
-                       layer1_mask_reprojected);
+      const cv::Mat& image = images.Get(camera.GetName());
+      image_pyramid_sizes[cam][it] = image.size() / downscale_factor;
     }
+  }
+  cv::Mat1f alpha(min_composite.size(), 0.0);
+  alpha.setTo(1.0, mask > 0);
 
-    cv::Mat3b first_layer = min_composite.clone();
-    refiner.Optimize(first_layer, max_composite, 5);
-    first_layer.copyTo(min_composite, mask == 255);
-
-    cv::Mat1f alpha(min_composite.size(), 0.0);
-    alpha.setTo(1.0, mask > 0);
-    for (int cam = 0; cam < std::min(scene.NumCameras(), kMaxFrames);
-         cam += kSkipFrames) {
-      const replay::Camera& camera = scene.GetCamera(cam);
-      cv::Mat image = images.Get(camera.GetName()).clone();
-      replay::CompositeMotionRefiner motion_refiner(image.cols, image.rows);
-      // motion_refiner.Optimize(min_composite, max_composite, alpha, image,
-      // flows_to_layer1[cam], flows_to_layer2[cam], 5);
-    }
+  // Downsample the two layer images to the coarsest scale
+  // Also downsample the flow fields
+  for (int it = 1; it <= kNumPyramidLevels; it++) {
+    cv::pyrDown(min_composite, min_composite, layer_pyramid_sizes[it]);
+    cv::pyrDown(max_composite, max_composite, layer_pyramid_sizes[it]);
+    cv::pyrDown(alpha, alpha, layer_pyramid_sizes[it]);
 
     for (int cam = 0; cam < std::min(scene.NumCameras(), kMaxFrames);
          cam += kSkipFrames) {
-      cv::Mat3b diffuse = replay::OpticalFlowAligner::InverseWarp(
-          min_composite, flows_to_layer1[cam]);
-      const replay::Camera& camera = scene.GetCamera(cam);
-      const cv::Mat3b image = images.Get(camera.GetName());
-      const cv::Mat3b residual = image - diffuse;
-      cv::Mat2f refined_flow = flows_to_layer2[cam].clone();
-      greedy_flow.calc(residual, max_composite, refined_flow);
-      cv::Mat3b refined_reprojected =
-          replay::OpticalFlowAligner::InverseWarp(residual, refined_flow);
-      flows_from_layer2[cam] = refined_flow;
-      cv::imwrite(replay::JoinPath(FLAGS_output_directory,
-                                   "per_view_residual_" + std::to_string(it) +
-                                       "_" + camera.GetName()),
-                  residual);
-    }
+      cv::imshow("l1 original", replay::FlowToColor(flows_to_layer1[cam]));
+      cv::Mat2f resized_flow;
+      cv::pyrDown(flows_to_layer1[cam], flows_to_layer1[cam],
+                  image_pyramid_sizes[cam][it]);
 
-    cv::imwrite(replay::JoinPath(
-                    FLAGS_output_directory,
-                    "max_composite_optimized_" + std::to_string(it) + ".png"),
-                max_composite);
-    cv::imwrite(replay::JoinPath(
-                    FLAGS_output_directory,
-                    "min_composite_optimized_" + std::to_string(it) + ".png"),
-                min_composite);
+      cv::pyrDown(flows_to_layer2[cam], flows_to_layer2[cam],
+                  image_pyramid_sizes[cam][it]);
+      // cv::Mat invalid_flows = flows_to_layer1[cam] == FLT_MAX;
+      flows_to_layer1[cam] /= 2.0;
+      flows_to_layer1[cam].setTo(FLT_MAX, flows_to_layer1[cam] >= 1e4);
+      // invalid_flows = flows_to_layer2[cam] == FLT_MAX;
+      flows_to_layer2[cam] /= 2.0;
+      flows_to_layer2[cam].setTo(FLT_MAX, flows_to_layer2[cam] >= 1e4);
+      // flows_to_layer2[cam].setTo(FLT_MAX, invalid_flows > 0);
+      cv::imshow("l1 flow", replay::FlowToColor(flows_to_layer1[cam]));
+      cv::imshow("l2 flow", replay::FlowToColor(flows_to_layer2[cam]));
+      cv::waitKey(1);
+    }
+  }
+
+  cv::destroyAllWindows();
+  for (int level = kNumPyramidLevels; level >= 0; level--) {
+    LOG(ERROR) << "Refinement iteration " << level;
+    if (layer_pyramid_sizes[level] != min_composite.size()) {
+      cv::pyrUp(min_composite, min_composite, layer_pyramid_sizes[level]);
+      cv::pyrUp(max_composite, max_composite, layer_pyramid_sizes[level]);
+      cv::pyrUp(alpha, alpha, layer_pyramid_sizes[level]);
+      for (int cam = 0; cam < std::min(scene.NumCameras(), kMaxFrames);
+           cam += kSkipFrames) {
+        cv::pyrUp(flows_to_layer1[cam], flows_to_layer1[cam],
+                  image_pyramid_sizes[cam][level]);
+        cv::pyrUp(flows_to_layer2[cam], flows_to_layer2[cam],
+                  image_pyramid_sizes[cam][level]);
+        cv::Mat mask = flows_to_layer1[cam] > 1e4;
+        flows_to_layer1[cam] *= 2;
+        flows_to_layer1[cam].setTo(FLT_MAX, mask);
+        mask = flows_to_layer2[cam] > 1e4;
+        flows_to_layer2[cam] *= 2;
+        flows_to_layer2[cam].setTo(FLT_MAX, mask);
+      }
+    }
+    cv::Mat1b mask_down;
+    LOG(ERROR) << "Resizing to pyramid level " << level;
+    LOG(ERROR) << "Resizing from " << mask.size() << " to "
+               << layer_pyramid_sizes[level];
+    cv::resize(mask, mask_down, layer_pyramid_sizes[level], cv::INTER_NEAREST);
+    cv::imshow("min_composite", min_composite);
+    cv::imshow("max_composite", max_composite);
+    cv::imshow("alpha", alpha);
+    cv::waitKey();
+
+    std::unordered_map<int, cv::Mat3b> resized_images;
+    for (int it = 0; it < kNumIterationsPerLevel; it++) {
+      replay::LayerRefiner refiner(max_composite.cols, max_composite.rows);
+      replay::ImageReprojector image_reprojector3(context);
+      for (int cam = 0; cam < std::min(scene.NumCameras(), kMaxFrames);
+           cam += kSkipFrames) {
+        const replay::Camera& camera = scene.GetCamera(cam);
+        cv::Mat image = images.Get(camera.GetName()).clone();
+        cv::Mat1b layer1_mask_reprojected;
+
+        for (int l = 1; l <= level; l++) {
+          LOG(ERROR) << "Resizing image " << image.size() << " to "
+                     << image_pyramid_sizes[cam][l];
+          cv::pyrDown(image, image, image_pyramid_sizes[cam][l]);
+        }
+
+        cv::imshow("image", image);
+        cv::waitKey(1);
+        resized_images[cam] = image;
+        refiner.AddImage(image, flows_to_layer1[cam], flows_to_layer2[cam],
+                         min_composite, max_composite, alpha);
+      }
+
+      cv::Mat3b first_layer = min_composite.clone();
+      refiner.Optimize(first_layer, max_composite, alpha, 4);
+      first_layer.copyTo(min_composite, mask_down == 255);
+
+      cv::imshow("min_composite_after", min_composite);
+      cv::imshow("max_composite_after", max_composite);
+      cv::imshow("alpha", alpha);
+
+      cv::waitKey();
+
+      for (int cam = 0; cam < std::min(scene.NumCameras(), kMaxFrames);
+           cam += kSkipFrames) {
+        // const replay::Camera& camera = scene.GetCamera(cam);
+        cv::Mat3b& image = resized_images[cam];
+        replay::CompositeMotionRefiner motion_refiner(image.cols, image.rows);
+        motion_refiner.Optimize(min_composite, max_composite, alpha, image,
+                                flows_to_layer1[cam], flows_to_layer2[cam], 1);
+      }
+
+      cv::imwrite(
+          replay::JoinPath(FLAGS_output_directory,
+                           "max_composite_optimized_l" + std::to_string(level) +
+                               "_" + std::to_string(it) + ".png"),
+          max_composite);
+      cv::imwrite(
+          replay::JoinPath(FLAGS_output_directory,
+                           "min_composite_optimized_l" + std::to_string(level) +
+                               "_" + std::to_string(it) + ".png"),
+          min_composite);
+    }
   }
 
   replay::ImageReprojector image_reprojector4(context);

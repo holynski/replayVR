@@ -145,12 +145,6 @@ bool ReflectionSegmenter::Optimize(cv::Mat1b& mask,
   cv::Mat1d normalized_reflection_cost = reflection_cost_ / cost_count_;
   cv::Mat1d normalized_diffuse_cost = diffuse_cost_;
 
-  cv::imshow("reflection", normalized_reflection_cost / 255.0);
-  cv::imshow("diffuse", normalized_diffuse_cost / 255.0);
-  cv::imwrite("/Users/holynski/reflection.png", normalized_reflection_cost);
-  cv::imwrite("/Users/holynski/diffuse.png", normalized_diffuse_cost);
-  cv::waitKey(1);
-
   // cv::Mat1b edge_mask = cv::Mat1b::ones(normalized_reflection_cost.size());
 
   // cv::Ptr<cv::line_descriptor::LSDDetector> bd =

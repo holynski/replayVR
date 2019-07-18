@@ -16,7 +16,7 @@ class CompositeMotionRefiner {
                 cv::Mat2f& layer1, cv::Mat2f& layer2, const int num_iterations);
 
  private:
-  bool GradientDescent(const cv::Mat3b& layer1_img, const cv::Mat3b& layer2_img,
+  double GradientDescent(const cv::Mat3b& layer1_img, const cv::Mat3b& layer2_img,
                        const cv::Mat1f& alpha_img, const cv::Mat3b& composite,
                        cv::Mat2f& layer1, cv::Mat2f& layer2);
   const int width_;
