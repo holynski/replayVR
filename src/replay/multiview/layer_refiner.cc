@@ -9,157 +9,151 @@ namespace replay {
 
 namespace {
 
-static const float kEpsilon = 0.00001;
+// Cost functor 1: Data term
+//      Take observed pixel (constant)
+//      Take layer1 pixel (variable)
+//      Take layer2 pixel (variable)
+//      Take alpha pixel (variable)
+//
+//      Return difference (observed - (layer1 + alpha*layer2))
+//        3-channeled return value
+struct DataCostFunctor {
+  DataCostFunctor(const cv::Vec3d& observed_color, const int channels)
+      : observed_color_(observed_color), channels_(channels) {}
+
+  template <typename T>
+  bool operator()(const T* const layer1, const T* const layer2,
+                  const T* const alpha, T* e) const {
+    for (int c = 0; c < channels_; c++) {
+      e[c] = T(observed_color_[c]) - (layer1[c] + alpha[0] * layer2[c]);
+    }
+    return true;
+  }
+
+ private:
+  const cv::Vec3d observed_color_;
+  const int channels_;
+};
+
+// Cost functor 2: gradient term
+//      Take two neighboring pixels (variables)
+//      Take a lambda weight (constant)
+//
+//      Return sum of absolute values of difference between neighboring pixels
+//          3 channeled return value
+struct GradientCostFunctor {
+  GradientCostFunctor(const double lambda, const int channels)
+      : lambda_(lambda), channels_(channels) {}
+
+  template <typename T>
+  bool operator()(const T* const pixel1, const T* const pixel2, T* e) const {
+    for (int c = 0; c < channels_; c++) {
+      e[c] = lambda_ * (pixel2[c] - pixel1[c]);
+    }
+    return true;
+  }
+
+ private:
+  const double lambda_;
+  const int channels_;
+};
+
+// Cost functor 3: Correlation term
+//      Take two neighboring pixels in layer 1 (variables)
+//      Take two neighboring pixels in layer 2 (variables)
+//      Take a lambda weight (constant)
+//
+//      Return squared_norm(layer1_difference) * squared_norm(layer2_difference)
+struct CorrelationCostFunctor {
+  CorrelationCostFunctor(const double lambda) : lambda_(lambda) {}
+
+  template <typename T>
+  bool operator()(const T* const layer1_pixel1, const T* const layer1_pixel2,
+                  const T* const layer2_pixel1, const T* const layer2_pixel2,
+                  T* e) const {
+    T sq_norm1 = T(0);
+    T sq_norm2 = T(0);
+    for (int c = 0; c < 3; c++) {
+      sq_norm1 += ceres::pow(layer1_pixel2[c] - layer1_pixel1[c], 2);
+      sq_norm2 += ceres::pow(layer2_pixel2[c] - layer2_pixel1[c], 2);
+    }
+    e[0] = sq_norm1 * sq_norm2 * lambda_;
+    return true;
+  }
+
+ private:
+  const double lambda_;
+};
 
 }  // namespace
 
 LayerRefiner::LayerRefiner(const int width, const int height)
     : width_(width),
       height_(height),
-      current_row_(0),
-      pixels_to_vars_(cv::Size(width_, height_), -1) {
-  // Compute the sparse matrix using triplets.
+      coord_to_index_(cv::Size(width_, height_), -1) {
+  parameters_.resize(width_ * height_ * 7);
 
   // Build index remaps
   for (int y = 0; y < height_; ++y) {
     for (int x = 0; x < width_; ++x) {
-      const int var_id = vars_to_pixels_.size();
-      vars_to_pixels_.emplace_back(x, y);
-      pixels_to_vars_(y, x) = var_id;
+      const int var_id = index_to_coord_.size();
+      index_to_coord_.emplace_back(x, y);
+      coord_to_index_(y, x) = var_id;
     }
   }
 }
 
-// Do at multiple scales...
-// how?
-
 bool LayerRefiner::AddImage(const cv::Mat3b& image,
                             const cv::Mat2f& flow_to_layer1,
-                            const cv::Mat2f& flow_to_layer2,
-                            const cv::Mat3b& layer1_img,
-                            const cv::Mat3b& layer2_img,
-                            const cv::Mat1f& alpha_img) {
-  for (int y = 0; y < image.rows; ++y) {
-    for (int x = 0; x < image.cols; ++x) {
-      if (flow_to_layer1(y, x)[0] == FLT_MAX ||
-          flow_to_layer2(y, x)[0] == FLT_MAX) {
+                            const cv::Mat2f& flow_to_layer2) {
+  // Each image that is added corresponds to:
+  //    For each pixel:
+  //        Create one data cost term
+  for (int row = 0; row < image.rows; row++) {
+    for (int col = 0; col < image.cols; col++) {
+      const cv::Vec2f coord(col, row);
+      const cv::Vec2f layer1_flow = flow_to_layer1(row, col);
+      const cv::Vec2f layer2_flow = flow_to_layer2(row, col);
+      const cv::Vec2f flowed_layer1 = coord + layer1_flow;
+      const cv::Vec2f flowed_layer2 = coord + layer2_flow;
+
+      const cv::Vec2i flowed_layer1_pixel(std::round(flowed_layer1[0]),
+                                          std::round(flowed_layer1[1]));
+      const cv::Vec2i flowed_layer2_pixel(std::round(flowed_layer2[0]),
+                                          std::round(flowed_layer2[1]));
+
+      if (flowed_layer1_pixel[0] < 0 || flowed_layer1_pixel[1] < 0 ||
+          flowed_layer2_pixel[0] < 0 || flowed_layer2_pixel[1] < 0 ||
+          flowed_layer1_pixel[0] >= width_ ||
+          flowed_layer1_pixel[1] >= height_ ||
+          flowed_layer2_pixel[0] >= width_ ||
+          flowed_layer2_pixel[1] >= height_) {
         continue;
       }
-      cv::Vec2f foreground_coordinates = cv::Vec2f(x, y) + flow_to_layer1(y, x);
-      cv::Vec2f background_coordinates = cv::Vec2f(x, y) + flow_to_layer2(y, x);
 
-      Eigen::Vector2i fg_floored(foreground_coordinates[0],
-                                 foreground_coordinates[1]);
-      Eigen::Vector2f fg_frac(foreground_coordinates[0] - fg_floored.x(),
-                              foreground_coordinates[1] - fg_floored.y());
+      const int layer1_index =
+          coord_to_index_(flowed_layer1_pixel[1], flowed_layer1_pixel[0]) * 7;
+      const int alpha_index =
+          coord_to_index_(flowed_layer1_pixel[1], flowed_layer1_pixel[0]) * 7 +
+          6;
+      const int layer2_index =
+          coord_to_index_(flowed_layer2_pixel[1], flowed_layer2_pixel[0]) * 7 +
+          3;
 
-      Eigen::Vector2i bg_floored(background_coordinates[0],
-                                 background_coordinates[1]);
-      Eigen::Vector2f bg_frac(background_coordinates[0] - bg_floored.x(),
-                              background_coordinates[1] - bg_floored.y());
-      if (fg_floored[0] < 0 || bg_floored[0] < 0 ||
-          fg_floored[0] >= width_ - 1 || bg_floored[0] >= width_ - 1 ||
-          fg_floored[1] < 0 || bg_floored[1] < 0 ||
-          fg_floored[1] >= height_ - 1 || bg_floored[1] >= height_ - 1) {
-        continue;
+      const cv::Vec3b observed_color = image(row, col);
+      cv::Vec3d observed_color_scaled;
+
+      for (int c = 0; c < 3; c++) {
+        observed_color_scaled[c] = observed_color[c] / 255.0;
       }
-      const int row_base = current_row_;
-      current_row_ += 3;
 
-      const cv::Vec3f observed =
-          cv::Vec3f(image(y, x)[0] / 255.0, image(y, x)[1] / 255.0,
-                    image(y, x)[2] / 255.0);
-      ;
-      const cv::Vec3f layer1 = cv::Vec3f(
-          layer1_img(foreground_coordinates[1], foreground_coordinates[0])[0] /
-              255.0,
-          layer1_img(foreground_coordinates[1], foreground_coordinates[0])[1] /
-              255.0,
-          layer1_img(foreground_coordinates[1], foreground_coordinates[0])[2] /
-              255.0);
-      const cv::Vec3f layer2 = cv::Vec3f(
-          layer2_img(background_coordinates[1], background_coordinates[0])[0] /
-              255.0,
-          layer2_img(background_coordinates[1], background_coordinates[0])[1] /
-              255.0,
-          layer2_img(background_coordinates[1], background_coordinates[0])[2] /
-              255.0);
-      const float alpha =
-          alpha_img(foreground_coordinates[1], foreground_coordinates[0]);
+      ceres::AutoDiffCostFunction<DataCostFunctor, 3, 3, 3, 1>* costfn =
+          new ceres::AutoDiffCostFunction<DataCostFunctor, 3, 3, 3, 1>(
+              new DataCostFunctor(observed_color_scaled, 3));
 
-      float w = 1.0f / std::sqrt(cv::norm(observed - layer1 - alpha * layer2,
-                                          cv::NORM_L2SQR) +
-                                 kEpsilon);
-
-      for (int c = 0; c < 3; ++c) {
-        b_.push_back(w * (observed[c] + alpha * layer2[c]));
-      }
-#if BILINEAR_TERMS
-      for (int dy = 0; dy < 2; ++dy) {
-        for (int dx = 0; dx < 2; ++dx) {
-          Eigen::Vector2f bgc =
-              bg_floored.cast<float>() + Eigen::Vector2f(dx, dy);
-          Eigen::Vector2f fgc =
-              fg_floored.cast<float>() + Eigen::Vector2f(dx, dy);
-
-          bgc.x() = std::min(bgc.x(), width_ - 1.0f);
-          bgc.y() = std::min(bgc.y(), height_ - 1.0f);
-
-          fgc.x() = std::min(fgc.x(), width_ - 1.0f);
-          fgc.y() = std::min(fgc.y(), height_ - 1.0f);
-
-          float bgw = (1.0f - std::abs(dy - bg_frac.y())) *
-                      (1.0f - std::abs(dx - bg_frac.x()));
-          float fgw = (1.0f - std::abs(dy - fg_frac.y())) *
-                      (1.0f - std::abs(dx - fg_frac.x()));
-          if (fgw <= 0.0f || bgw <= 0.0f) continue;
-
-          int fgv = pixels_to_vars_(fgc.y(), fgc.x());
-          int bgv = pixels_to_vars_(bgc.y(), bgc.x());
-
-          const int av_c = fgv * 7 + 6;
-          for (int c = 0; c < 3; ++c) {
-            const int row_id = row_base + c;
-            const int fgv_c = fgv * 7 + c + 0;
-            const int bgv_c = bgv * 7 + c + 3;
-            CHECK_LT(av_c, vars_to_pixels_.size() * 7);
-            CHECK_LT(bgv_c, vars_to_pixels_.size() * 7);
-            CHECK_LT(fgv_c, vars_to_pixels_.size() * 7);
-            triplets_.emplace_back(row_id, av_c, bgw * w * layer2[c]);
-            triplets_.emplace_back(row_id, bgv_c, bgw * w * alpha);
-            triplets_.emplace_back(row_id, fgv_c, fgw * w);
-          }
-        }
-      }
-#else
-
-      Eigen::Vector2f bgc(std::round(background_coordinates[0]),
-                          std::round(background_coordinates[1]));
-      Eigen::Vector2f fgc(std::round(foreground_coordinates[0]),
-                          std::round(foreground_coordinates[1]));
-
-      bgc.x() = std::max(0.0f, std::min(bgc.x(), width_ - 1.0f));
-      bgc.y() = std::max(0.0f, std::min(bgc.y(), height_ - 1.0f));
-
-      fgc.x() = std::max(0.0f, std::min(fgc.x(), width_ - 1.0f));
-      fgc.y() = std::max(0.0f, std::min(fgc.y(), height_ - 1.0f));
-
-      int fgv = pixels_to_vars_(fgc.y(), fgc.x());
-      int bgv = pixels_to_vars_(bgc.y(), bgc.x());
-
-      for (int c = 0; c < 3; ++c) {
-        const int row_id = row_base + c;
-        const int fgv_c = fgv * 7 + c + 0;
-        const int bgv_c = bgv * 7 + c + 3;
-        const int av_c = fgv * 7 + 6;
-        CHECK_LT(av_c, vars_to_pixels_.size() * 7);
-        CHECK_LT(bgv_c, vars_to_pixels_.size() * 7);
-        CHECK_LT(fgv_c, vars_to_pixels_.size() * 7);
-        triplets_.emplace_back(row_id, av_c, w * layer2[c]);
-        triplets_.emplace_back(row_id, bgv_c, w * alpha);
-        triplets_.emplace_back(row_id, fgv_c, w);
-      }
-#endif
+      problem_.AddResidualBlock(
+          costfn, new ceres::TrivialLoss(), parameters_.data() + layer1_index,
+          parameters_.data() + layer2_index, parameters_.data() + alpha_index);
     }
   }
   return true;
@@ -167,314 +161,164 @@ bool LayerRefiner::AddImage(const cv::Mat3b& image,
 
 bool LayerRefiner::Optimize(cv::Mat3b& layer1_img, cv::Mat3b& layer2_img,
                             cv::Mat1f& alpha, const int num_iterations) {
-  for (int i = 0; i < num_iterations; ++i) {
-    GradientDescent(layer1_img, layer2_img, alpha);
-    cv::imwrite("/Users/holynski/Downloads/debug/min_composite_optimized_" +
-                    std::to_string(i) + ".png",
-                layer1_img);
-    cv::imwrite("/Users/holynski/Downloads/debug/max_composite_optimized_" +
-                    std::to_string(i) + ".png",
-                layer2_img);
+  LOG(INFO) << "Creating smoothness costs...";
+  // For each pixel in layer 1:
+  //    Create one gradient cost in X direction (with SoftL1Loss)
+  //    Create one gradient cost in Y direction (with SoftL1Loss)
+  // For each pixel in layer 2:
+  //    Create one gradient cost in X direction (with SoftL1Loss)
+  //    Create one gradient cost in Y direction (with SoftL1Loss)
+  // For each pixel in alpha:
+  //    Create one gradient cost in X direction (with TrivialLoss)
+  //    Create one gradient cost in Y direction (with TrivialLoss)
+  // For each pixel in layer1/layer2:
+  //    Create one correlation cost in X direction (with TrivialLoss)
+  //    Create one correlation cost in Y direction (with TrivialLoss)
+
+  for (int row = 0; row < height_; row++) {
+    for (int col = 0; col < width_; col++) {
+      const int center_pixel = coord_to_index_(row, col) * 7;
+      if (col < width_ - 1) {
+        const int right_pixel = coord_to_index_(row, col + 1) * 7;
+
+        ceres::AutoDiffCostFunction<GradientCostFunctor, 3, 3, 3>* layer1_cost =
+            new ceres::AutoDiffCostFunction<GradientCostFunctor, 3, 3, 3>(
+                new GradientCostFunctor(0.1, 3));
+        ceres::AutoDiffCostFunction<GradientCostFunctor, 3, 3, 3>* layer2_cost =
+            new ceres::AutoDiffCostFunction<GradientCostFunctor, 3, 3, 3>(
+                new GradientCostFunctor(0.1, 3));
+        ceres::AutoDiffCostFunction<GradientCostFunctor, 1, 1, 1>* alpha_cost =
+            new ceres::AutoDiffCostFunction<GradientCostFunctor, 1, 1, 1>(
+                new GradientCostFunctor(1.0, 1));
+        ceres::AutoDiffCostFunction<CorrelationCostFunctor, 1, 3, 3, 3, 3>*
+            correlation_cost =
+                new ceres::AutoDiffCostFunction<CorrelationCostFunctor, 1, 3, 3,
+                                                3, 3>(
+                    new CorrelationCostFunctor(3000));
+
+        problem_.AddResidualBlock(layer1_cost,
+                                  new ceres::SoftLOneLoss(1.0 / 255.0),
+                                  parameters_.data() + center_pixel,
+                                  parameters_.data() + right_pixel);
+        problem_.AddResidualBlock(layer2_cost,
+                                  new ceres::SoftLOneLoss(1.0 / 255.0),
+                                  parameters_.data() + center_pixel + 3,
+                                  parameters_.data() + right_pixel + 3);
+        problem_.AddResidualBlock(alpha_cost, new ceres::TrivialLoss(),
+                                  parameters_.data() + center_pixel + 6,
+                                  parameters_.data() + right_pixel + 6);
+        problem_.AddResidualBlock(correlation_cost, new ceres::TrivialLoss(),
+                                  parameters_.data() + center_pixel,
+                                  parameters_.data() + right_pixel,
+                                  parameters_.data() + center_pixel + 3,
+                                  parameters_.data() + right_pixel + 3);
+      }
+
+      if (row < height_ - 1) {
+        const int bottom_pixel = coord_to_index_(row + 1, col) * 7;
+
+        ceres::AutoDiffCostFunction<GradientCostFunctor, 3, 3, 3>* layer1_cost =
+            new ceres::AutoDiffCostFunction<GradientCostFunctor, 3, 3, 3>(
+                new GradientCostFunctor(0.1, 3));
+        ceres::AutoDiffCostFunction<GradientCostFunctor, 3, 3, 3>* layer2_cost =
+            new ceres::AutoDiffCostFunction<GradientCostFunctor, 3, 3, 3>(
+                new GradientCostFunctor(0.1, 3));
+        ceres::AutoDiffCostFunction<GradientCostFunctor, 1, 1, 1>* alpha_cost =
+            new ceres::AutoDiffCostFunction<GradientCostFunctor, 1, 1, 1>(
+                new GradientCostFunctor(1.0, 1));
+        ceres::AutoDiffCostFunction<CorrelationCostFunctor, 1, 3, 3, 3, 3>*
+            correlation_cost =
+                new ceres::AutoDiffCostFunction<CorrelationCostFunctor, 1, 3, 3,
+                                                3, 3>(
+                    new CorrelationCostFunctor(3000));
+
+        problem_.AddResidualBlock(layer1_cost,
+                                  new ceres::SoftLOneLoss(1.0 / 255.0),
+                                  parameters_.data() + center_pixel,
+                                  parameters_.data() + bottom_pixel);
+        problem_.AddResidualBlock(layer2_cost,
+                                  new ceres::SoftLOneLoss(1.0 / 255.0),
+                                  parameters_.data() + center_pixel + 3,
+                                  parameters_.data() + bottom_pixel + 3);
+        problem_.AddResidualBlock(alpha_cost, new ceres::TrivialLoss(),
+                                  parameters_.data() + center_pixel + 6,
+                                  parameters_.data() + bottom_pixel + 6);
+        problem_.AddResidualBlock(correlation_cost, new ceres::TrivialLoss(),
+                                  parameters_.data() + center_pixel,
+                                  parameters_.data() + bottom_pixel,
+                                  parameters_.data() + center_pixel + 3,
+                                  parameters_.data() + bottom_pixel + 3);
+      }
+    }
   }
+
+  // Initialize the solution
+  for (int row = 0; row < height_; row++) {
+    for (int col = 0; col < width_; col++) {
+      int pixel_index = coord_to_index_(row, col) * 7;
+      for (int c = 0; c < 3; c++) {
+        parameters_[pixel_index + c] = layer1_img(row, col)[c] / 255.0;
+      }
+      for (int c = 0; c < 3; c++) {
+        parameters_[pixel_index + 3 + c] = layer2_img(row, col)[c] / 255.0;
+      }
+      parameters_[pixel_index + 6] = 1.0 * alpha(row, col);
+    }
+  }
+
+  // Set the bounds:
+  //    Alpha = 0...1
+  //    Layer1 = 0...1
+  //    Layer2 = 0...1
+  for (int row = 0; row < height_; row++) {
+    for (int col = 0; col < width_; col++) {
+      int pixel_index = coord_to_index_(row, col) * 7;
+      for (int c = 0; c < 3; c++) {
+        problem_.SetParameterLowerBound(parameters_.data() + pixel_index, c, 0);
+        problem_.SetParameterUpperBound(parameters_.data() + pixel_index, c, 1);
+      }
+      problem_.SetParameterLowerBound(parameters_.data() + 6 + pixel_index, 0,
+                                      0);
+      problem_.SetParameterUpperBound(parameters_.data() + 6 + pixel_index, 0,
+                                      1);
+      for (int c = 0; c < 3; c++) {
+        problem_.SetParameterLowerBound(parameters_.data() + 3 + pixel_index, c,
+                                        0);
+        problem_.SetParameterUpperBound(parameters_.data() + 3 + pixel_index, c,
+                                        1);
+      }
+    }
+  }
+
+  //    Optimize!
+  LOG(INFO) << "Solving with Ceres...";
+  ceres::Solver::Options options;
+  options.sparse_linear_algebra_library_type = ceres::SUITE_SPARSE;
+  options.linear_solver_type = ceres::CGNR;
+  options.preconditioner_type = ceres::JACOBI;
+  options.max_num_iterations = 999999;
+  options.minimizer_progress_to_stdout = true;
+  options.function_tolerance = 1e-8;
+
+  ceres::Solver::Summary summary;
+  ceres::Solve(options, &problem_, &summary);
+  LOG(INFO) << summary.FullReport();
+
+  LOG(INFO) << "Copying solution...";
+  for (int row = 0; row < height_; row++) {
+    for (int col = 0; col < width_; col++) {
+      int pixel_index = coord_to_index_(row, col) * 7;
+      for (int c = 0; c < 3; c++) {
+        layer1_img(row, col)[c] = parameters_[pixel_index + c] * 255.0;
+      }
+      for (int c = 0; c < 3; c++) {
+        layer2_img(row, col)[c] = parameters_[pixel_index + 3 + c] * 255.0;
+      }
+      alpha(row, col) = parameters_[pixel_index + 6];
+    }
+  }
+
   return true;
-}
-
-double LayerRefiner::GradientDescent(cv::Mat3b& layer1_img, cv::Mat3b& layer2_img,
-                                   cv::Mat1f& alpha) {
-  if (layer1_img.rows != layer2_img.rows ||
-      layer1_img.cols != layer2_img.cols) {
-    LOG(FATAL) << "Layer sizes must be identical";
-  }
-
-  // Take the current state of the linear system, and clone it.
-  // The following constraints are goign to change at each L1 iteration, because
-  // they depend on the initialization.
-  std::vector<Eigen::Triplet<double>> triplets = triplets_;
-  int current_row = current_row_;
-  std::vector<double> bs = b_;
-
-#if 1
-  // Collect unary costs: Alleviate scale ambiguity with regularization ---
-  // encourage solutions close to average grey.
-  const float regularizer_lambda = 1.0f;
-  for (int i = 0; i < static_cast<int>(vars_to_pixels_.size()); ++i) {
-    const int row_base = current_row;
-    current_row += 7;
-
-    const int ar_c = row_base + 6;
-    const int av_c = i * 7 + 6;
-    CHECK_LT(av_c, vars_to_pixels_.size() * 7);
-    triplets.emplace_back(ar_c, av_c, regularizer_lambda);
-    bs.push_back(regularizer_lambda * 0.5f);
-    for (int c = 0; c < 3; ++c) {
-      const int fgr_c = row_base + c + 0;
-      const int bgr_c = row_base + c + 3;
-      const int fgv_c = i * 7 + c + 0;
-      const int bgv_c = i * 7 + c + 3;
-      CHECK_LT(fgv_c, vars_to_pixels_.size() * 7);
-      CHECK_LT(bgv_c, vars_to_pixels_.size() * 7);
-      triplets.emplace_back(fgr_c, fgv_c, regularizer_lambda);
-      triplets.emplace_back(bgr_c, bgv_c, regularizer_lambda);
-      bs.push_back(regularizer_lambda * 0.5f);
-      bs.push_back(regularizer_lambda * 0.5f);
-    }
-  }
-#endif
-
-#if 1
-  // Collect pairwise costs: Encourage sparse (L1) gradients on both layers.
-  const float pairwise_lambda_fg = 0.1f;
-  const float pairwise_lambda_bg = 0.1f;
-  const float pairwise_lambda_alpha = 1.0f;
-
-  for (int y = 0; y < height_; ++y)
-    for (int x = 0; x < width_; ++x) {
-      const int this_id =
-          pixels_to_vars_(std::min(height_ - 1, std::max(0, y + 0)),
-                          std::min(width_ - 1, std::max(0, x + 0)));
-      const int right_id =
-          pixels_to_vars_(std::min(height_ - 1, std::max(0, y + 0)),
-                          std::min(width_ - 1, std::max(0, x + 1)));
-      const int bottom_id =
-          pixels_to_vars_(std::min(height_ - 1, std::max(0, y + 1)),
-                          std::min(width_ - 1, std::max(0, x + 0)));
-
-      if (x < width_ - 1 && right_id >= 0) {
-        const int row_base = current_row;
-        current_row += 7;
-
-        int a_t = this_id * 7 + 6;
-        int a_r = right_id * 7 + 6;
-        int a_c = row_base + 7;
-        CHECK_LT(a_t, vars_to_pixels_.size() * 7);
-        CHECK_LT(a_r, vars_to_pixels_.size() * 7);
-        triplets.emplace_back(a_c, a_t, -pairwise_lambda_alpha);
-        triplets.emplace_back(a_c, a_r, pairwise_lambda_alpha);
-        bs.push_back(0.0);
-
-        for (int c = 0; c < 3; ++c) {
-          int fgr_t = this_id * 7 + 0 + c;
-          int bgr_t = this_id * 7 + 3 + c;
-
-          int fgr_r = right_id * 7 + 0 + c;
-          int bgr_r = right_id * 7 + 3 + c;
-
-          int fgr_c = row_base + 0 + c;
-          int bgr_c = row_base + 3 + c;
-
-          float prev_delta =
-              1.0f + std::abs(1.0f * layer1_img(y, x)[c] / 255.0 -
-                              1.0f * layer1_img(y, x + 1)[c] / 255.0);
-          float w = pairwise_lambda_fg / prev_delta;
-          CHECK_LT(fgr_t, vars_to_pixels_.size() * 7);
-          CHECK_LT(fgr_r, vars_to_pixels_.size() * 7);
-          triplets.emplace_back(fgr_c, fgr_t, -w);
-          triplets.emplace_back(fgr_c, fgr_r, w);
-          bs.push_back(0.0);
-
-          prev_delta = 1.0f + std::abs(1.0f * layer2_img(y, x)[c] / 255.0 -
-                                       1.0f * layer2_img(y, x + 1)[c] / 255.0);
-          w = pairwise_lambda_bg / prev_delta;
-          CHECK_LT(bgr_t, vars_to_pixels_.size() * 7);
-          CHECK_LT(bgr_r, vars_to_pixels_.size() * 7);
-          triplets.emplace_back(bgr_c, bgr_t, -w);
-          triplets.emplace_back(bgr_c, bgr_r, w);
-          bs.push_back(0.0);
-        }
-      }
-      if (y < height_ - 1 & bottom_id >= 0) {
-        const int row_base = current_row;
-        current_row += 7;
-
-        int a_t = this_id * 7 + 6;
-        int a_b = bottom_id * 7 + 6;
-        int a_c = row_base + 7;
-        CHECK_LT(a_t, vars_to_pixels_.size() * 7);
-        CHECK_LT(a_b, vars_to_pixels_.size() * 7);
-        triplets.emplace_back(a_c, a_t, -pairwise_lambda_alpha);
-        triplets.emplace_back(a_c, a_b, pairwise_lambda_alpha);
-        bs.push_back(0.0);
-
-        for (int c = 0; c < 3; ++c) {
-          int fgr_t = this_id * 7 + 0 + c;
-          int bgr_t = this_id * 7 + 3 + c;
-
-          int fgr_b = bottom_id * 7 + 0 + c;
-          int bgr_b = bottom_id * 7 + 3 + c;
-
-          int fgr_c = row_base + 0 + c;
-          int bgr_c = row_base + 3 + c;
-
-          float prev_delta =
-              1.0f + std::abs(1.0f * layer1_img(y, x)[c] / 255.0 -
-                              1.0f * layer1_img(y + 1, x)[c] / 255.0);
-          float w = pairwise_lambda_fg / prev_delta;
-          CHECK_LT(fgr_b, vars_to_pixels_.size() * 7);
-          CHECK_LT(fgr_t, vars_to_pixels_.size() * 7);
-          triplets.emplace_back(fgr_c, fgr_t, -w);
-          triplets.emplace_back(fgr_c, fgr_b, w);
-          bs.push_back(0.0);
-
-          prev_delta = 1.0f + std::abs(1.0f * layer2_img(y, x)[c] / 255.0 -
-                                       1.0f * layer2_img(y + 1, x)[c]) /
-                                  255.0;
-          w = pairwise_lambda_bg / prev_delta;
-          CHECK_LT(bgr_b, vars_to_pixels_.size() * 7);
-          CHECK_LT(bgr_t, vars_to_pixels_.size() * 7);
-          triplets.emplace_back(bgr_c, bgr_t, -w);
-          triplets.emplace_back(bgr_c, bgr_b, w);
-          bs.push_back(0.0);
-        }
-      }
-    }
-#endif
-#if 1
-  // Collect pairwise costs: Penalize correlated gradients between the FG and BG
-  // layers.
-  const float correlation_lambda = 3000.0f;
-  for (int y = 0; y < height_; ++y)
-    for (int x = 0; x < width_; ++x) {
-      const int this_id =
-          pixels_to_vars_(std::min(height_ - 1, std::max(0, y + 0)),
-                          std::min(width_ - 1, std::max(0, x + 0)));
-      const int right_id =
-          pixels_to_vars_(std::min(height_ - 1, std::max(0, y + 0)),
-                          std::min(width_ - 1, std::max(0, x + 1)));
-      const int bottom_id =
-          pixels_to_vars_(std::min(height_ - 1, std::max(0, y + 1)),
-                          std::min(width_ - 1, std::max(0, x + 0)));
-
-      if (x < width_ - 1 && right_id >= 0) {
-        const int row_base = current_row;
-        current_row += 3;
-
-        for (int c = 0; c < 3; ++c) {
-          int fgr_t = this_id * 7 + 0 + c;
-          int bgr_t = this_id * 7 + 3 + c;
-
-          int fgr_r = right_id * 7 + 0 + c;
-          int bgr_r = right_id * 7 + 3 + c;
-
-          float prev_fgr_delta =
-              layer1_img(y, x + 1)[c] / 255.0 - layer1_img(y, x)[c] / 255.0;
-          float prev_bgr_delta =
-              layer2_img(y, x + 1)[c] / 255.0 - layer2_img(y, x)[c] / 255.0;
-
-          int row_id = row_base + c;
-          float w = correlation_lambda;
-          CHECK_LT(fgr_t, vars_to_pixels_.size() * 7);
-          CHECK_LT(fgr_r, vars_to_pixels_.size() * 7);
-          CHECK_LT(bgr_r, vars_to_pixels_.size() * 7);
-          CHECK_LT(bgr_t, vars_to_pixels_.size() * 7);
-          triplets.emplace_back(row_id, fgr_t, -w * prev_bgr_delta);
-          triplets.emplace_back(row_id, fgr_r, w * prev_bgr_delta);
-          triplets.emplace_back(row_id, bgr_t, -w * prev_fgr_delta);
-          triplets.emplace_back(row_id, bgr_r, w * prev_fgr_delta);
-          bs.push_back(w * prev_bgr_delta * prev_fgr_delta);
-        }
-      }
-
-      if (y < height_ - 1 & bottom_id >= 0) {
-        const int row_base = current_row;
-        current_row += 3;
-
-        for (int c = 0; c < 3; ++c) {
-          int fgr_t = this_id * 7 + 0 + c;
-          int bgr_t = this_id * 7 + 3 + c;
-
-          int fgr_b = bottom_id * 7 + 0 + c;
-          int bgr_b = bottom_id * 7 + 3 + c;
-
-          float prev_fgr_delta =
-              layer1_img(y + 1, x)[c] / 255.0 - layer1_img(y, x)[c] / 255.0;
-          float prev_bgr_delta =
-              layer2_img(y + 1, x)[c] / 255.0 - layer2_img(y, x)[c] / 255.0;
-
-          int row_id = row_base + c;
-          float w = correlation_lambda;
-          CHECK_LT(fgr_t, vars_to_pixels_.size() * 7);
-          CHECK_LT(fgr_b, vars_to_pixels_.size() * 7);
-          CHECK_LT(bgr_b, vars_to_pixels_.size() * 7);
-          CHECK_LT(bgr_t, vars_to_pixels_.size() * 7);
-          triplets.emplace_back(row_id, fgr_t, -w * prev_bgr_delta);
-          triplets.emplace_back(row_id, fgr_b, w * prev_bgr_delta);
-          triplets.emplace_back(row_id, bgr_t, -w * prev_fgr_delta);
-          triplets.emplace_back(row_id, bgr_b, w * prev_fgr_delta);
-          bs.push_back(w * prev_bgr_delta * prev_fgr_delta);
-        }
-      }
-    }
-#endif
-
-  LOG(INFO) << "Sparse matrix size: " << triplets.size() << std::endl;
-  Eigen::SparseMatrix<double, Eigen::ColMajor, std::ptrdiff_t> A(
-      current_row, vars_to_pixels_.size() * 7);
-  A.setFromTriplets(triplets.begin(), triplets.end());
-  Eigen::MatrixXd b(current_row, 1);
-  for (int i = 0; i < current_row; ++i) {
-    b(i, 0) = bs[i];
-  }
-
-  const Eigen::SparseMatrix<double, Eigen::ColMajor, std::ptrdiff_t> At =
-      A.transpose();
-  const Eigen::SparseMatrix<double, Eigen::ColMajor, std::ptrdiff_t> AtA =
-      At * A;
-  const Eigen::MatrixXd Atb = At * b;
-  Eigen::MatrixXd solution(vars_to_pixels_.size() * 7, 1);
-  Eigen::MatrixXd guess(vars_to_pixels_.size() * 7, 1);
-  for (int i = 0; i < static_cast<int>(vars_to_pixels_.size()); ++i) {
-    Eigen::Vector2i coords = vars_to_pixels_[i];
-    for (int c = 0; c < 3; ++c) {
-      guess(i * 7 + c + 0) = layer1_img(coords.y(), coords.x())[c] / 255.0;
-      guess(i * 7 + c + 3) = layer2_img(coords.y(), coords.x())[c] / 255.0;
-    }
-    guess(i * 7 + 6) = alpha(coords.y(), coords.x());
-  }
-
-  Eigen::ConjugateGradient<Eigen::SparseMatrix<double, 0, std::ptrdiff_t>,
-                           Eigen::Lower | Eigen::Upper>
-      solver;
-  // solver.setMaxIterations(1);
-  solver.setTolerance(1e-6);
-  solver.compute(AtA);
-#ifdef PROJECTED_GRAD
-  double last_error = DBL_MAX;
-  solver.setMaxIterations(1);
-  while (last_error - solver.error() > 1e-6) {
-    solution = solver.solveWithGuess(Atb, guess);
-    for (int i = 0; i < static_cast<int>(vars_to_pixels_.size()); ++i) {
-      for (int c = 0; c < 3; ++c) {
-        solution(i * 7 + c) =
-            std::fmax(std::fmin(solution(i * 7 + c), 1.0), 0.0);
-        solution(i * 7 + 3 + c) =
-            std::fmax(std::fmin(solution(i * 7 + 3 + c), 1.0), 0.0);
-      }
-      solution(i * 7 + 6) = std::fmax(std::fmin(solution(i * 7 + 6), 1.0), 0.0);
-    }
-  }
-#else
-  solver.setMaxIterations(250);
-  solution = solver.solveWithGuess(Atb, guess);
-#endif
-  std::cout << "SOLVER ERROR: " << solver.error()
-            << " ITERATIONS: " << solver.iterations() << std::endl;
-
-  // layer1_img = cv::Mat3f::zeros(transparency_mask_.size());
-  // layer2_img = cv::Mat3f::zeros(transparency_mask_.size());
-
-  for (int i = 0; i < static_cast<int>(vars_to_pixels_.size()); ++i) {
-    Eigen::Vector2i coords = vars_to_pixels_[i];
-    for (int c = 0; c < 3; ++c) {
-      layer1_img(coords.y(), coords.x())[c] =
-          std::min(1.0, std::max(0.0, solution(i * 7 + c + 0))) * 255.0;
-      layer2_img(coords.y(), coords.x())[c] =
-          std::min(1.0, std::max(0.0, solution(i * 7 + c + 3))) * 255.0;
-    }
-    alpha(coords.y(), coords.x()) =
-        std::min(1.0, std::max(0.0, solution(i * 7 + 6)));
-  }
-
-  return solver.error();
 }
 
 }  // namespace replay

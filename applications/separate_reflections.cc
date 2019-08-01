@@ -46,8 +46,8 @@ DEFINE_string(window_mesh, "", "");
 DEFINE_string(min_composite, "", "");
 DEFINE_string(depth_cache, "", "");
 
-static const int kSkipFrames = 1;
-static const int kMaxFrames = 5;
+static const int kSkipFrames = 5;
+static const int kMaxFrames = 100;
 static const int kNumPyramidLevels = 4;
 static const int kNumIterationsPerLevel = 4;
 
@@ -737,8 +737,7 @@ int main(int argc, char* argv[]) {
         cv::imshow("image", image);
         cv::waitKey(1);
         resized_images[cam] = image;
-        refiner.AddImage(image, flows_to_layer1[cam], flows_to_layer2[cam],
-                         min_composite, max_composite, alpha);
+        refiner.AddImage(image, flows_to_layer1[cam], flows_to_layer2[cam]);
       }
 
       cv::Mat3b first_layer = min_composite.clone();
