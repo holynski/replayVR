@@ -1,4 +1,5 @@
 #include <ceres/ceres.h>
+#include <replay/flow/optical_flow.h>
 #include <replay/flow/optical_flow_aligner.h>
 #include <replay/flow/visualization.h>
 #include <replay/multiview/layer_refiner.h>
@@ -90,7 +91,8 @@ struct CorrelationCostFunctor {
 LayerRefiner::LayerRefiner(const int width, const int height)
     : width_(width),
       height_(height),
-      coord_to_index_(cv::Size(width_, height_), -1) {
+      coord_to_index_(cv::Size(width_, height_), -1),
+      num_images_(0) {
   parameters_.resize(width_ * height_ * 7);
 
   // Build index remaps
@@ -105,12 +107,21 @@ LayerRefiner::LayerRefiner(const int width, const int height)
 
 bool LayerRefiner::AddImage(const cv::Mat3b& image,
                             const cv::Mat2f& flow_to_layer1,
-                            const cv::Mat2f& flow_to_layer2) {
+                            const cv::Mat2f& flow_to_layer2,
+                            const cv::Mat1b& valid_pixels) {
   // Each image that is added corresponds to:
   //    For each pixel:
   //        Create one data cost term
+  cv::Mat3b fg_splat(cv::Size(width_, height_), cv::Vec3b(255, 255, 255));
+  cv::Mat3b bg_splat(cv::Size(width_, height_), cv::Vec3b(255, 255, 255));
+
   for (int row = 0; row < image.rows; row++) {
     for (int col = 0; col < image.cols; col++) {
+      if (!valid_pixels.empty()) {
+        if (valid_pixels(row, col) == 0) {
+          continue;
+        }
+      }
       const cv::Vec2f coord(col, row);
       const cv::Vec2f layer1_flow = flow_to_layer1(row, col);
       const cv::Vec2f layer2_flow = flow_to_layer2(row, col);
@@ -141,6 +152,8 @@ bool LayerRefiner::AddImage(const cv::Mat3b& image,
           3;
 
       const cv::Vec3b observed_color = image(row, col);
+      fg_splat(flowed_layer1_pixel[1], flowed_layer1_pixel[0]) = observed_color;
+      bg_splat(flowed_layer2_pixel[1], flowed_layer2_pixel[0]) = observed_color;
       cv::Vec3d observed_color_scaled;
 
       for (int c = 0; c < 3; c++) {
@@ -151,17 +164,29 @@ bool LayerRefiner::AddImage(const cv::Mat3b& image,
           new ceres::AutoDiffCostFunction<DataCostFunctor, 3, 3, 3, 1>(
               new DataCostFunctor(observed_color_scaled, 3));
 
-      problem_.AddResidualBlock(
-          costfn, new ceres::TrivialLoss(), parameters_.data() + layer1_index,
-          parameters_.data() + layer2_index, parameters_.data() + alpha_index);
+      problem_.AddResidualBlock(costfn, new ceres::SoftLOneLoss(1.0 / 255.0),
+                                parameters_.data() + layer1_index,
+                                parameters_.data() + layer2_index,
+                                parameters_.data() + alpha_index);
     }
   }
+  num_images_++;
   return true;
 }
 
 bool LayerRefiner::Optimize(cv::Mat3b& layer1_img, cv::Mat3b& layer2_img,
                             cv::Mat1f& alpha, const int num_iterations) {
-  LOG(INFO) << "Creating smoothness costs...";
+  CHECK_GT(num_images_, 0);
+
+  // Here  we use the weights described in Xue et al. "A Computational Approach
+  // for Obstruction-Free Photography". The weights provided in the paper are
+  // tuned for a fixed number of images (5), and the number of data cost terms
+  // increase with each added image (but the smoothness costs do not), so we
+  // need to scale the smoothness weights by the number of images.
+  const double layer_smoothness_lambda = 0.1 * (num_images_ / 5.0);
+  const double alpha_smoothness_lambda = 1.0;// * (num_images_ / 5.0);
+  const double correlation_lambda = 3000 * (num_images_ / 5.0);
+
   // For each pixel in layer 1:
   //    Create one gradient cost in X direction (with SoftL1Loss)
   //    Create one gradient cost in Y direction (with SoftL1Loss)
@@ -183,18 +208,18 @@ bool LayerRefiner::Optimize(cv::Mat3b& layer1_img, cv::Mat3b& layer2_img,
 
         ceres::AutoDiffCostFunction<GradientCostFunctor, 3, 3, 3>* layer1_cost =
             new ceres::AutoDiffCostFunction<GradientCostFunctor, 3, 3, 3>(
-                new GradientCostFunctor(0.1, 3));
+                new GradientCostFunctor(layer_smoothness_lambda, 3));
         ceres::AutoDiffCostFunction<GradientCostFunctor, 3, 3, 3>* layer2_cost =
             new ceres::AutoDiffCostFunction<GradientCostFunctor, 3, 3, 3>(
-                new GradientCostFunctor(0.1, 3));
+                new GradientCostFunctor(layer_smoothness_lambda, 3));
         ceres::AutoDiffCostFunction<GradientCostFunctor, 1, 1, 1>* alpha_cost =
             new ceres::AutoDiffCostFunction<GradientCostFunctor, 1, 1, 1>(
-                new GradientCostFunctor(1.0, 1));
+                new GradientCostFunctor(alpha_smoothness_lambda, 1));
         ceres::AutoDiffCostFunction<CorrelationCostFunctor, 1, 3, 3, 3, 3>*
             correlation_cost =
                 new ceres::AutoDiffCostFunction<CorrelationCostFunctor, 1, 3, 3,
                                                 3, 3>(
-                    new CorrelationCostFunctor(3000));
+                    new CorrelationCostFunctor(correlation_lambda));
 
         problem_.AddResidualBlock(layer1_cost,
                                   new ceres::SoftLOneLoss(1.0 / 255.0),
@@ -219,18 +244,18 @@ bool LayerRefiner::Optimize(cv::Mat3b& layer1_img, cv::Mat3b& layer2_img,
 
         ceres::AutoDiffCostFunction<GradientCostFunctor, 3, 3, 3>* layer1_cost =
             new ceres::AutoDiffCostFunction<GradientCostFunctor, 3, 3, 3>(
-                new GradientCostFunctor(0.1, 3));
+                new GradientCostFunctor(layer_smoothness_lambda, 3));
         ceres::AutoDiffCostFunction<GradientCostFunctor, 3, 3, 3>* layer2_cost =
             new ceres::AutoDiffCostFunction<GradientCostFunctor, 3, 3, 3>(
-                new GradientCostFunctor(0.1, 3));
+                new GradientCostFunctor(layer_smoothness_lambda, 3));
         ceres::AutoDiffCostFunction<GradientCostFunctor, 1, 1, 1>* alpha_cost =
             new ceres::AutoDiffCostFunction<GradientCostFunctor, 1, 1, 1>(
-                new GradientCostFunctor(1.0, 1));
+                new GradientCostFunctor(alpha_smoothness_lambda, 1));
         ceres::AutoDiffCostFunction<CorrelationCostFunctor, 1, 3, 3, 3, 3>*
             correlation_cost =
                 new ceres::AutoDiffCostFunction<CorrelationCostFunctor, 1, 3, 3,
                                                 3, 3>(
-                    new CorrelationCostFunctor(3000));
+                    new CorrelationCostFunctor(correlation_lambda));
 
         problem_.AddResidualBlock(layer1_cost,
                                   new ceres::SoftLOneLoss(1.0 / 255.0),
@@ -296,7 +321,7 @@ bool LayerRefiner::Optimize(cv::Mat3b& layer1_img, cv::Mat3b& layer2_img,
   options.sparse_linear_algebra_library_type = ceres::SUITE_SPARSE;
   options.linear_solver_type = ceres::CGNR;
   options.preconditioner_type = ceres::JACOBI;
-  options.max_num_iterations = 999999;
+  options.max_num_iterations = 200;
   options.minimizer_progress_to_stdout = true;
   options.function_tolerance = 1e-8;
 

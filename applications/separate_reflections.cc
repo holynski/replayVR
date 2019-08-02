@@ -719,6 +719,7 @@ int main(int argc, char* argv[]) {
     cv::waitKey();
 
     std::unordered_map<int, cv::Mat3b> resized_images;
+    std::unordered_map<int, cv::Mat> resized_image_masks;
     for (int it = 0; it < kNumIterationsPerLevel; it++) {
       replay::LayerRefiner refiner(max_composite.cols, max_composite.rows);
       replay::ImageReprojector image_reprojector3(context);
@@ -726,7 +727,17 @@ int main(int argc, char* argv[]) {
            cam += kSkipFrames) {
         const replay::Camera& camera = scene.GetCamera(cam);
         cv::Mat image = images.Get(camera.GetName()).clone();
-        cv::Mat1b layer1_mask_reprojected;
+        cv::Mat valid_pixels_mask = image > 0;
+        cv::cvtColor(valid_pixels_mask, valid_pixels_mask, cv::COLOR_RGB2GRAY);
+        // A hack to make sure that all the interior pixels are valid, and we're
+        // only thresholding the black borders. TODO(holynski): Replace this by
+        // making sure the undistorted images don't have a border.
+        valid_pixels_mask(cv::Rect(valid_pixels_mask.cols / 30,
+                                   valid_pixels_mask.rows / 30,
+                                   valid_pixels_mask.cols * 28 / 30,
+                                   valid_pixels_mask.rows * 28 / 30))
+            .setTo(255);
+        valid_pixels_mask = (valid_pixels_mask == 255);
 
         for (int l = 1; l <= level; l++) {
           LOG(ERROR) << "Resizing image " << image.size() << " to "
@@ -734,10 +745,12 @@ int main(int argc, char* argv[]) {
           cv::pyrDown(image, image, image_pyramid_sizes[cam][l]);
         }
 
-        cv::imshow("image", image);
-        cv::waitKey(1);
         resized_images[cam] = image;
-        refiner.AddImage(image, flows_to_layer1[cam], flows_to_layer2[cam]);
+        cv::resize(valid_pixels_mask, valid_pixels_mask, image.size());
+        valid_pixels_mask = valid_pixels_mask == 255;
+        resized_image_masks[cam] = valid_pixels_mask;
+        refiner.AddImage(image, flows_to_layer1[cam], flows_to_layer2[cam],
+                         valid_pixels_mask);
       }
 
       cv::Mat3b first_layer = min_composite.clone();

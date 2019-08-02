@@ -16,16 +16,11 @@ class CompositeMotionRefiner {
                 cv::Mat2f& layer1, cv::Mat2f& layer2, const int num_iterations);
 
  private:
-  double GradientDescent(const cv::Mat3b& layer1_img, const cv::Mat3b& layer2_img,
-                       const cv::Mat1f& alpha_img, const cv::Mat3b& composite,
-                       cv::Mat2f& layer1, cv::Mat2f& layer2);
   const int width_;
   const int height_;
-  std::vector<Eigen::Triplet<double>> triplets_;
-  std::vector<double> b_;
-  double current_row_;
-  std::vector<Eigen::Vector2i> vars_to_pixels_;
-  cv::Mat1i pixels_to_vars_;
+  std::vector<Eigen::Vector2i> index_to_coord_;
+  cv::Mat1i coord_to_index_;
+  std::vector<double> parameters_;
 };
 
 }  // namespace replay

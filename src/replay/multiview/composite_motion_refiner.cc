@@ -9,10 +9,101 @@ namespace replay {
 
 namespace {
 
-static const float eps = 0.0001;
-// static const int kNumElementsPerPixel = 4;
-// static const int kFirstLayerFlowOffset = 0;
-// static const int kSecondLayerFlowOffset = 2;
+//// Cost functor 1:
+//      Take the XY gradient of the layer1 image at the layer1 coordinates
+//      (constant)
+//      Take the XY gradient of the layer2 image at the layer2
+//      coordinates (constant)
+//      Take the layer1 flow (variable)
+//      Take the layer2 flow (variable)
+//      Take the unexplained residual (constant)
+//      Take the initial layer1 flow (constant)
+//      Take the initial layer2 flow (constant)
+//
+//      Subtract the initial flows from the layer flows
+//      Use the subpixel flow values multiplied by the gradients to get teh
+//      change in intensity. Subtract the change in intensity from the residual
+//      and return it.
+//
+//      Return value is 3-channeled
+struct DataCostFunctor {
+  DataCostFunctor(const cv::Vec3d& layer1_gradient_x,
+                  const cv::Vec3d& layer1_gradient_y,
+                  const cv::Vec3d& layer2_gradient_x,
+                  const cv::Vec3d& layer2_gradient_y,
+                  const double alpha_gradient_x, const double alpha_gradient_y,
+                  const cv::Vec3d& residual, const cv::Vec3d& layer2,
+                  const double& alpha, const cv::Vec2d& layer1_initial_flow,
+                  const cv::Vec2d& layer2_initial_flow)
+      : layer1_gradient_x_(layer1_gradient_x),
+        layer1_gradient_y_(layer1_gradient_y),
+        layer2_gradient_x_(layer2_gradient_x),
+        layer2_gradient_y_(layer2_gradient_y),
+        alpha_gradient_x_(alpha_gradient_x),
+        alpha_gradient_y_(alpha_gradient_y),
+        residual_(residual),
+        layer2_(layer2),
+        alpha_(alpha),
+        layer1_initial_flow_(layer1_initial_flow),
+        layer2_initial_flow_(layer2_initial_flow) {}
+
+  template <typename T>
+  bool operator()(const T* const layer1_flow, const T* const layer2_flow,
+                  T* e) const {
+    T layer1_flow_x = layer1_flow[0] - layer1_initial_flow_[0];
+    T layer1_flow_y = layer1_flow[1] - layer1_initial_flow_[1];
+    T layer2_flow_x = layer2_flow[0] - layer2_initial_flow_[0];
+    T layer2_flow_y = layer2_flow[1] - layer2_initial_flow_[1];
+    T intensity_change[3];
+    for (int c = 0; c < 3; c++) {
+      intensity_change[c] = (layer1_flow_x * layer1_gradient_x_[c]) +
+                            (layer1_flow_y * layer1_gradient_y_[c]) +
+                            (layer2_flow_x * layer2_gradient_x_[c] * alpha_) +
+                            (layer2_flow_y * layer2_gradient_y_[c] * alpha_) +
+                            (layer2_[c] * alpha_gradient_x_ * layer1_flow_x) +
+                            (layer2_[c] * alpha_gradient_y_ * layer1_flow_y);
+      e[c] = residual_[c] - intensity_change[c];
+    }
+
+    return true;
+  }
+
+ private:
+  const cv::Vec3d& layer1_gradient_x_;
+  const cv::Vec3d& layer1_gradient_y_;
+  const cv::Vec3d& layer2_gradient_x_;
+  const cv::Vec3d& layer2_gradient_y_;
+  const double alpha_gradient_x_;
+  const double alpha_gradient_y_;
+  const cv::Vec3d& residual_;
+  const cv::Vec3d& layer2_;
+  const double& alpha_;
+  const cv::Vec2d& layer1_initial_flow_;
+  const cv::Vec2d& layer2_initial_flow_;
+};
+
+// Cost functor 2: gradient term
+//      Take two neighboring pixels (variables)
+//      Take a lambda weight (constant)
+//
+//      Return sum of absolute values of difference between neighboring pixels
+//          3 channeled return value
+struct GradientCostFunctor {
+  GradientCostFunctor(const double lambda, const int channels)
+      : lambda_(lambda), channels_(channels) {}
+
+  template <typename T>
+  bool operator()(const T* const pixel1, const T* const pixel2, T* e) const {
+    for (int c = 0; c < channels_; c++) {
+      e[c] = lambda_ * (pixel2[c] - pixel1[c]);
+    }
+    return true;
+  }
+
+ private:
+  const double lambda_;
+  const int channels_;
+};
 
 }  // namespace
 
@@ -20,84 +111,19 @@ CompositeMotionRefiner::CompositeMotionRefiner(const int width,
                                                const int height)
     : width_(width),
       height_(height),
-      current_row_(0),
-      pixels_to_vars_(cv::Size(width_, height_), -1) {
-  // Compute the sparse matrix using triplets.
-
+      coord_to_index_(cv::Size(width_, height_), -1),
+      parameters_(width * height * 4) {
   // Build index remaps
   for (int y = 0; y < height_; ++y) {
     for (int x = 0; x < width_; ++x) {
-      const int var_id = vars_to_pixels_.size();
-      vars_to_pixels_.emplace_back(x, y);
-      pixels_to_vars_(y, x) = var_id;
+      const int var_id = index_to_coord_.size();
+      index_to_coord_.emplace_back(x, y);
+      coord_to_index_(y, x) = var_id;
     }
   }
+
+  // Create parameter block.
 }
-
-#if 0
-{
-  for (int y = 0; y < image.rows; ++y) {
-    for (int x = 0; x < image.cols; ++x) {
-      if (flow_to_layer1(y, x)[0] == FLT_MAX ||
-          flow_to_layer2(y, x)[0] == FLT_MAX || mask(y, x) == 0) {
-        continue;
-      }
-      cv::Vec2f foreground_coordinates = cv::Vec2f(x, y) + flow_to_layer1(y, x);
-      cv::Vec2f background_coordinates = cv::Vec2f(x, y) + flow_to_layer2(y, x);
-
-      Eigen::Vector2i fg_floored(foreground_coordinates[0],
-                                 foreground_coordinates[1]);
-      Eigen::Vector2f fg_frac(foreground_coordinates[0] - fg_floored.x(),
-                              foreground_coordinates[1] - fg_floored.y());
-
-      Eigen::Vector2i bg_floored(background_coordinates[0],
-                                 background_coordinates[1]);
-      Eigen::Vector2f bg_frac(background_coordinates[0] - bg_floored.x(),
-                              background_coordinates[1] - bg_floored.y());
-
-      const int row_base = current_row_;
-      current_row_ += 3;
-
-      for (int c = 0; c < 3; ++c) {
-        b_.push_back(image(y, x)[c]);
-      }
-
-      for (int dy = 0; dy < 2; ++dy) {
-        for (int dx = 0; dx < 2; ++dx) {
-          Eigen::Vector2f bgc =
-              bg_floored.cast<float>() + Eigen::Vector2f(dx, dy);
-          Eigen::Vector2f fgc =
-              fg_floored.cast<float>() + Eigen::Vector2f(dx, dy);
-
-          bgc.x() = std::min(bgc.x(), width_ - 1.0f);
-          bgc.y() = std::min(bgc.y(), height_ - 1.0f);
-
-          fgc.x() = std::min(fgc.x(), width_ - 1.0f);
-          fgc.y() = std::min(fgc.y(), height_ - 1.0f);
-
-          float bgw = (1.0f - std::abs(dy - bg_frac.y())) *
-                      (1.0f - std::abs(dx - bg_frac.x()));
-          float fgw = (1.0f - std::abs(dy - fg_frac.y())) *
-                      (1.0f - std::abs(dx - fg_frac.x()));
-          if (fgw <= 0.0f || bgw <= 0.0f) continue;
-
-          int fgv = pixels_to_vars_(fgc.y(), fgc.x());
-          int bgv = pixels_to_vars_(bgc.y(), bgc.x());
-
-          for (int c = 0; c < 3; ++c) {
-            const int row_id = row_base + c;
-            const int fgv_c = fgv * 6 + c + 0;
-            const int bgv_c = bgv * 6 + c + 3;
-            triplets_.emplace_back(row_id, bgv_c, bgw);
-            triplets_.emplace_back(row_id, fgv_c, fgw);
-          }
-        }
-      }
-    }
-  }
-  return true;
-}
-#endif
 
 bool CompositeMotionRefiner::Optimize(const cv::Mat3b& layer1_img,
                                       const cv::Mat3b& layer2_img,
@@ -107,291 +133,94 @@ bool CompositeMotionRefiner::Optimize(const cv::Mat3b& layer1_img,
                                       const int num_iterations) {
   cv::imshow("layer1_before", replay::FlowToColor(layer1));
   cv::imshow("layer2_before", replay::FlowToColor(layer2));
-  for (int i = 0; i < num_iterations; ++i) {
-    GradientDescent(layer1_img, layer2_img, alpha_img, composite, layer1,
-                    layer2);
-    cv::imshow("layer1", replay::FlowToColor(layer1));
-    cv::imshow("layer2", replay::FlowToColor(layer2));
-    cv::waitKey(1);
-  }
-  return true;
-}  // namespace replay
 
-double CompositeMotionRefiner::GradientDescent(const cv::Mat3b& layer1_img,
-                                               const cv::Mat3b& layer2_img,
-                                               const cv::Mat1f& alpha_img,
-                                               const cv::Mat3b& composite,
-                                               cv::Mat2f& layer1,
-                                               cv::Mat2f& layer2) {
   if (layer1.rows != layer2.rows || layer1.cols != layer2.cols) {
     LOG(FATAL) << "Layer sizes must be identical";
   }
 
-  std::vector<Eigen::Triplet<double>> triplets = triplets_;
-  int current_row = current_row_;
-  std::vector<double> bs = b_;
+  ceres::Problem problem;
 
-  for (int y = 0; y < composite.rows; ++y) {
-    for (int x = 0; x < composite.cols; ++x) {
-      // I^t(x)
-      const cv::Vec3b& composite_intensity = composite(y, x);
+  const double flow_smoothness_lambda = 0.5;
 
-      // Vhat^t_O
-      const cv::Vec2f& layer1_flow = layer1(y, x);
+  // For each pixel in layer 1 flow:
+  //    Create one gradient cost in X direction (with SoftL1Loss)
+  //    Create one gradient cost in Y direction (with SoftL1Loss)
+  // For each pixel in layer 2 flow:
+  //    Create one gradient cost in X direction (with SoftL1Loss)
+  //    Create one gradient cost in Y direction (with SoftL1Loss)
+  for (int row = 0; row < height_; row++) {
+    for (int col = 0; col < width_; col++) {
+      const int center_pixel = coord_to_index_(row, col) * 4;
 
-      // Vhat^t_B
-      const cv::Vec2f& layer2_flow = layer2(y, x);
+      (const cv::Vec3d& layer1_gradient_x, const cv::Vec3d& layer1_gradient_y,
+       const cv::Vec3d& layer2_gradient_x, const cv::Vec3d& layer2_gradient_y,
+       const double alpha_gradient_x, const double alpha_gradient_y,
+       const cv::Vec3d& residual, const cv::Vec3d& layer2, const double& alpha,
+       const cv::Vec2d& layer1_initial_flow,
+       const cv::Vec2d& layer2_initial_flow)
 
-      if (cv::norm(layer1_flow) > 1e6 || cv::norm(layer2_flow) > 1e6) {
-        continue;
+      if (col < width_ - 1 && row < height_ - 1) {
+        ceres::AutoDiffCostFunction<DataCostFunctor, 2, 3>* data_cost =
+            new ceres::AutoDiffCostFunction<DataCostFunctor, 2, 3>(
+                new DataCostFunctor());
       }
 
-      // x
-      const cv::Vec2f coord(x, y);
+      if (col < width_ - 1) {
+        const int right_pixel = coord_to_index_(row, col + 1) * 4;
 
-      const cv::Vec2f foreground_coordinates = coord + layer1_flow;
-      const cv::Vec2f background_coordinates = coord + layer2_flow;
+        ceres::AutoDiffCostFunction<GradientCostFunctor, 2, 2, 2>* layer1_cost =
+            new ceres::AutoDiffCostFunction<GradientCostFunctor, 2, 2, 2>(
+                new GradientCostFunctor(flow_smoothness_lambda, 2));
+        ceres::AutoDiffCostFunction<GradientCostFunctor, 2, 2, 2>* layer2_cost =
+            new ceres::AutoDiffCostFunction<GradientCostFunctor, 2, 2, 2>(
+                new GradientCostFunctor(flow_smoothness_lambda, 2));
 
-      if (foreground_coordinates[0] >= 0 &&
-          foreground_coordinates[0] <= layer1_img.cols - 1 &&
-          foreground_coordinates[1] >= 0 &&
-          foreground_coordinates[1] <= layer1_img.rows - 1 &&
-          background_coordinates[0] >= 0 &&
-          background_coordinates[0] <= layer2_img.cols - 1 &&
-          background_coordinates[1] >= 0 &&
-          background_coordinates[1] <= layer2_img.rows - 1) {
-        // Ibar_O(x)
-        const cv::Vec3b layer1_intensity = BilinearFetch(
-            layer1_img, foreground_coordinates[0], foreground_coordinates[1]);
-        // Ibar_B(x)
-        const cv::Vec3b layer2_intensity = BilinearFetch(
-            layer2_img, background_coordinates[0], background_coordinates[1]);
-        // Abar(x)
-        const float alpha = BilinearFetch(alpha_img, foreground_coordinates[0],
-                                          foreground_coordinates[1]);
-
-        // \nabla Ibar_O(x)
-        const cv::Vec3b layer1_gradient_x =
-            BilinearGradient(layer1_img, foreground_coordinates[0],
-                             foreground_coordinates[1], 0);
-        const cv::Vec3b layer1_gradient_y =
-            BilinearGradient(layer1_img, foreground_coordinates[0],
-                             foreground_coordinates[1], 1);
-
-        // \nabla Ibar_B(x)
-        const cv::Vec3b layer2_gradient_x =
-            BilinearGradient(layer2_img, background_coordinates[0],
-                             background_coordinates[1], 0);
-        const cv::Vec3b layer2_gradient_y =
-            BilinearGradient(layer2_img, background_coordinates[0],
-                             background_coordinates[1], 1);
-
-        // \nabla Abar(x)
-        const float alpha_gradient_x = BilinearGradient(
-            alpha_img, foreground_coordinates[0], foreground_coordinates[1], 0);
-        const float alpha_gradient_y = BilinearGradient(
-            alpha_img, foreground_coordinates[0], foreground_coordinates[1], 1);
-
-        // w_1(x)
-        const float w_1 =
-            1.0f / std::sqrt(cv::norm(composite_intensity - layer1_intensity -
-                                          alpha * layer2_intensity,
-                                      cv::NORM_L2SQR) +
-                             eps);
-
-        const int this_id = pixels_to_vars_(y, x) * 4;
-
-        for (int c = 0; c < 3; c++) {
-          // Index for foreground X flow
-          const int v_o_x = this_id;
-          // Index for foreground Y flow
-          const int v_o_y = this_id + 1;
-          // Index for background X flow
-          const int v_b_x = this_id + 2;
-          // Index for background Y flow
-          const int v_b_y = this_id + 3;
-
-          const int row = current_row + c;
-
-          triplets.emplace_back(row, v_o_x,
-                                w_1 * (layer2_intensity[c] * alpha_gradient_x +
-                                       layer1_gradient_x[c]));
-          triplets.emplace_back(row, v_o_y,
-                                w_1 * (layer2_intensity[c] * alpha_gradient_y +
-                                       layer1_gradient_y[c]));
-          triplets.emplace_back(row, v_b_x,
-                                w_1 * (alpha * layer2_gradient_x[c]));
-          triplets.emplace_back(row, v_b_y,
-                                w_1 * (alpha * layer2_gradient_y[c]));
-
-          CHECK_EQ(w_1 * (layer2_intensity[c] * alpha_gradient_x +
-                          layer1_gradient_x[c]),
-                   w_1 * (layer2_intensity[c] * alpha_gradient_x +
-                          layer1_gradient_x[c]));
-          CHECK_EQ(w_1 * (layer2_intensity[c] * alpha_gradient_y +
-                          layer1_gradient_y[c]),
-                   w_1 * (layer2_intensity[c] * alpha_gradient_y +
-                          layer1_gradient_y[c]));
-          CHECK_EQ(w_1 * (alpha * layer2_gradient_x[c]),
-                   w_1 * (alpha * layer2_gradient_x[c]));
-          CHECK_EQ(w_1 * (alpha * layer2_gradient_y[c]),
-                   w_1 * (alpha * layer2_gradient_y[c]));
-
-          // Foreground intensity offset
-          const cv::Vec2f vo_o =
-              layer2_intensity[c] *
-                  cv::Vec2f(alpha_gradient_x, alpha_gradient_y) +
-              cv::Vec2f(layer1_gradient_x[c], layer1_gradient_y[c]);
-
-          // Background intensity offset
-          const cv::Vec2f vb_o =
-              alpha * cv::Vec2f(layer2_gradient_x[c], layer2_gradient_y[c]);
-
-          bs.emplace_back(w_1 *
-                          (composite_intensity[c] - layer1_intensity[c] -
-                           alpha * layer2_intensity[c] + vo_o.dot(layer1_flow) +
-                           vb_o.dot(layer2_flow)));
-        }
-        current_row += 3;
+        problem.AddResidualBlock(layer1_cost,
+                                 new ceres::SoftLOneLoss(1.0 / 255.0),
+                                 parameters_.data() + center_pixel,
+                                 parameters_.data() + right_pixel);
+        problem.AddResidualBlock(layer2_cost,
+                                 new ceres::SoftLOneLoss(1.0 / 255.0),
+                                 parameters_.data() + center_pixel + 2,
+                                 parameters_.data() + right_pixel + 2);
       }
 
-      const float smoothness_lambda = 0.5f;
-      // w_2(x)
-      const float w_2 = smoothness_lambda * 1.0 /
-                        std::sqrt(cv::norm(layer1_flow, cv::NORM_L2SQR) + eps);
+      if (row < height_ - 1) {
+        const int bottom_pixel = coord_to_index_(row + 1, col) * 4;
 
-      // w_3(x)
-      const float w_3 = smoothness_lambda * 1.0 /
-                        std::sqrt(cv::norm(layer2_flow, cv::NORM_L2SQR) + eps);
+        ceres::AutoDiffCostFunction<GradientCostFunctor, 2, 2, 2>* layer1_cost =
+            new ceres::AutoDiffCostFunction<GradientCostFunctor, 2, 2, 2>(
+                new GradientCostFunctor(flow_smoothness_lambda, 2));
+        ceres::AutoDiffCostFunction<GradientCostFunctor, 2, 2, 2>* layer2_cost =
+            new ceres::AutoDiffCostFunction<GradientCostFunctor, 2, 2, 2>(
+                new GradientCostFunctor(flow_smoothness_lambda, 2));
 
-      CHECK_EQ(w_2, w_2);
-      CHECK_EQ(w_3, w_3);
-
-      if (x + 1 < composite.cols) {
-        const int this_id = pixels_to_vars_(y, x) * 4;
-        const int right_id = pixels_to_vars_(y, x + 1) * 4;
-        const int right_id_layer1_x = right_id;
-        const int right_id_layer1_y = right_id + 1;
-        const int right_id_layer2_x = right_id + 2;
-        const int right_id_layer2_y = right_id + 3;
-
-        const int this_id_layer1_x = this_id;
-        // Index for foreground Y flow
-        const int this_id_layer1_y = this_id + 1;
-        // Index for background X flow
-        const int this_id_layer2_x = this_id + 2;
-        // Index for background Y flow
-        const int this_id_layer2_y = this_id + 3;
-
-        triplets.emplace_back(current_row, this_id_layer1_x, w_2);
-        triplets.emplace_back(current_row, right_id_layer1_x, -w_2);
-        bs.emplace_back(0);
-        triplets.emplace_back(current_row + 1, this_id_layer1_y, w_2);
-        triplets.emplace_back(current_row + 1, right_id_layer1_y, -w_2);
-        bs.emplace_back(0);
-        triplets.emplace_back(current_row + 2, this_id_layer2_x, w_3);
-        triplets.emplace_back(current_row + 2, right_id_layer2_x, -w_3);
-        bs.emplace_back(0);
-        triplets.emplace_back(current_row + 3, this_id_layer2_y, w_3);
-        triplets.emplace_back(current_row + 3, right_id_layer2_y, -w_3);
-        bs.emplace_back(0);
-
-        current_row += 4;
-      }
-
-      if (y + 1 < composite.rows) {
-        const int this_id = pixels_to_vars_(y, x) * 4;
-        const int bottom_id = pixels_to_vars_(y + 1, x) * 4;
-        const int bottom_id_layer1_x = bottom_id;
-        const int bottom_id_layer1_y = bottom_id + 1;
-        const int bottom_id_layer2_x = bottom_id + 2;
-        const int bottom_id_layer2_y = bottom_id + 3;
-
-        const int this_id_layer1_x = this_id;
-        // Index for foreground Y flow
-        const int this_id_layer1_y = this_id + 1;
-        // Index for background X flow
-        const int this_id_layer2_x = this_id + 2;
-        // Index for background Y flow
-        const int this_id_layer2_y = this_id + 3;
-
-        triplets.emplace_back(current_row, this_id_layer1_x, w_2);
-        triplets.emplace_back(current_row, bottom_id_layer1_x, -w_2);
-        bs.emplace_back(0);
-        triplets.emplace_back(current_row + 1, this_id_layer1_y, w_2);
-        triplets.emplace_back(current_row + 1, bottom_id_layer1_y, -w_2);
-        bs.emplace_back(0);
-        triplets.emplace_back(current_row + 2, this_id_layer2_x, w_3);
-        triplets.emplace_back(current_row + 2, bottom_id_layer2_x, -w_3);
-        bs.emplace_back(0);
-        triplets.emplace_back(current_row + 3, this_id_layer2_y, w_3);
-        triplets.emplace_back(current_row + 3, bottom_id_layer2_y, -w_3);
-        bs.emplace_back(0);
-
-        current_row += 4;
+        problem.AddResidualBlock(layer1_cost,
+                                 new ceres::SoftLOneLoss(1.0 / 255.0),
+                                 parameters_.data() + center_pixel,
+                                 parameters_.data() + bottom_pixel);
+        problem.AddResidualBlock(layer2_cost,
+                                 new ceres::SoftLOneLoss(1.0 / 255.0),
+                                 parameters_.data() + center_pixel + 2,
+                                 parameters_.data() + bottom_pixel + 2);
       }
     }
   }
 
-  LOG(INFO) << "Sparse matrix size: " << triplets.size() << std::endl;
-  Eigen::SparseMatrix<double, Eigen::ColMajor, std::ptrdiff_t> A(
-      current_row, vars_to_pixels_.size() * 4);
-  A.setFromTriplets(triplets.begin(), triplets.end());
-  Eigen::MatrixXd b(current_row, 1);
-  for (int i = 0; i < current_row; ++i) {
-    CHECK_EQ(bs[i], bs[i]);
-    b(i, 0) = bs[i];
-  }
-
-  const Eigen::SparseMatrix<double, Eigen::ColMajor, std::ptrdiff_t> At =
-      A.transpose();
-  const Eigen::SparseMatrix<double, Eigen::ColMajor, std::ptrdiff_t> AtA =
-      At * A;
-  const Eigen::MatrixXd Atb = At * b;
-  Eigen::MatrixXd solution(vars_to_pixels_.size() * 4, 1);
-  Eigen::MatrixXd guess(vars_to_pixels_.size() * 4, 1);
-  for (int i = 0; i < static_cast<int>(vars_to_pixels_.size()); ++i) {
-    for (int c = 0; c < 2; ++c) {
-      Eigen::Vector2i coords = vars_to_pixels_[i];
-      guess(i * 4 + c + 0) = layer1(coords.y(), coords.x())[c];
-      guess(i * 4 + c + 2) = layer2(coords.y(), coords.x())[c];
-      if (guess(i * 4 + c + 0) > 5000) {
-        guess(i * 4 + c + 0) = 0;
+  // Initialize the solution
+  for (int row = 0; row < height_; row++) {
+    for (int col = 0; col < width_; col++) {
+      int pixel_index = coord_to_index_(row, col) * 4;
+      for (int c = 0; c < 2; c++) {
+        parameters_[pixel_index + c] = layer1(row, col)[c];
       }
-      if (guess(i * 4 + c + 2) > 5000) {
-        guess(i * 4 + c + 2) = 0;
+      for (int c = 0; c < 2; c++) {
+        parameters_[pixel_index + 2 + c] = layer2(row, col)[c];
       }
     }
   }
 
-  Eigen::ConjugateGradient<Eigen::SparseMatrix<double, 0, std::ptrdiff_t>,
-                           Eigen::Lower | Eigen::Upper>
-      solver;
-  solver.setMaxIterations(1);
-  solver.setTolerance(1e-6);
-  solver.compute(AtA);
-  solution = solver.solveWithGuess(Atb, guess);
-  std::cout << "SOLVER ERROR: " << solver.error()
-            << " ITERATIONS: " << solver.iterations() << std::endl;
-
-  CHECK_EQ(solver.error(), solver.error()) << "Solver error is NaN!";
-  // layer1_img = cv::Mat3f::zeros(transparency_mask_.size());
-  // layer2_img = cv::Mat3f::zeros(transparency_mask_.size());
-
-  for (int i = 0; i < static_cast<int>(vars_to_pixels_.size()); ++i)
-    for (int c = 0; c < 2; ++c) {
-      Eigen::Vector2i coords = vars_to_pixels_[i];
-      layer1(coords.y(), coords.x())[c] =
-          std::fmax(layer1(coords.y(), coords.x())[c] - 1,
-                    std::fmin(layer1(coords.y(), coords.x())[c] + 1,
-                              solution(i * 4 + c + 0)));
-      layer2(coords.y(), coords.x())[c] =
-          std::fmax(layer2(coords.y(), coords.x())[c] - 1,
-                    std::fmin(layer2(coords.y(), coords.x())[c] + 1,
-                              solution(i * 4 + c + 2)));
-    }
-
-  return solver.error();
+  return true;
 }
 
 }  // namespace replay

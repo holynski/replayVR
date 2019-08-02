@@ -11,7 +11,8 @@ class LayerRefiner {
   LayerRefiner(const int width, const int height);
 
   bool AddImage(const cv::Mat3b& image, const cv::Mat2f& flow_to_layer1,
-                const cv::Mat2f& flow_to_layer2);
+                const cv::Mat2f& flow_to_layer2,
+                const cv::Mat1b& valid_pixels = cv::Mat1b());
 
   bool Optimize(cv::Mat3b& layer1_img, cv::Mat3b& layer2_img, cv::Mat1f& alpha,
                 const int num_iterations);
@@ -21,10 +22,9 @@ class LayerRefiner {
   const int height_;
   std::vector<Eigen::Vector2i> index_to_coord_;
   cv::Mat1i coord_to_index_;
-  cv::Mat1i has_cost_layer1_;
-  cv::Mat1i has_cost_layer2_;
   std::vector<double> parameters_;
   std::vector<double> observations_;
+  int num_images_;
   ceres::Problem problem_;
 };
 
