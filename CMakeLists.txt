@@ -230,7 +230,7 @@ include_directories(
   ${cereal_SOURCE_DIR}
   ${cereal_SOURCE_DIR}/include
   ${gco_SOURCE_DIR}
-  ${gtest_SOURCE_DIR}/include
+  ${GTEST_INCLUDE_DIR}/include
   ${gtest_SOURCE_DIR}
   ${tinyply_SOURCE_DIR}
   ${triangle_SOURCE_DIR}

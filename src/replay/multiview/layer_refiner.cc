@@ -183,9 +183,9 @@ bool LayerRefiner::Optimize(cv::Mat3b& layer1_img, cv::Mat3b& layer2_img,
   // tuned for a fixed number of images (5), and the number of data cost terms
   // increase with each added image (but the smoothness costs do not), so we
   // need to scale the smoothness weights by the number of images.
-  const double layer_smoothness_lambda = 0.1 * (num_images_ / 5.0);
+  const double layer_smoothness_lambda = 0.1;// * (num_images_ / 5.0);
   const double alpha_smoothness_lambda = 1.0;// * (num_images_ / 5.0);
-  const double correlation_lambda = 3000 * (num_images_ / 5.0);
+  const double correlation_lambda = 3000;// * (num_images_ / 5.0);
 
   // For each pixel in layer 1:
   //    Create one gradient cost in X direction (with SoftL1Loss)
@@ -229,7 +229,7 @@ bool LayerRefiner::Optimize(cv::Mat3b& layer1_img, cv::Mat3b& layer2_img,
                                   new ceres::SoftLOneLoss(1.0 / 255.0),
                                   parameters_.data() + center_pixel + 3,
                                   parameters_.data() + right_pixel + 3);
-        problem_.AddResidualBlock(alpha_cost, new ceres::TrivialLoss(),
+        problem_.AddResidualBlock(alpha_cost, new ceres::SoftLOneLoss(1.0 / 255.0),
                                   parameters_.data() + center_pixel + 6,
                                   parameters_.data() + right_pixel + 6);
         problem_.AddResidualBlock(correlation_cost, new ceres::TrivialLoss(),
@@ -265,7 +265,7 @@ bool LayerRefiner::Optimize(cv::Mat3b& layer1_img, cv::Mat3b& layer2_img,
                                   new ceres::SoftLOneLoss(1.0 / 255.0),
                                   parameters_.data() + center_pixel + 3,
                                   parameters_.data() + bottom_pixel + 3);
-        problem_.AddResidualBlock(alpha_cost, new ceres::TrivialLoss(),
+        problem_.AddResidualBlock(alpha_cost, new ceres::SoftLOneLoss(1.0 / 255.0),
                                   parameters_.data() + center_pixel + 6,
                                   parameters_.data() + bottom_pixel + 6);
         problem_.AddResidualBlock(correlation_cost, new ceres::TrivialLoss(),

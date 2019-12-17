@@ -51,6 +51,59 @@ static const int kMaxFrames = 100;
 static const int kNumPyramidLevels = 4;
 static const int kNumIterationsPerLevel = 4;
 
+cv::Mat2f FlowResizeHalf(const cv::Mat2f& input) {
+  cv::Mat2f output(input.size() / 2);
+  for (int row = 0; row < output.rows; row++) {
+    for (int col = 0; col < output.cols; col++) {
+      cv::Vec2f flow(0, 0);
+      int counter = 0;
+      for (int r = row * 2; r < std::min(input.rows, 2 + row * 2); r++) {
+        for (int c = col * 2; c < std::min(input.cols, 2 + col * 2); c++) {
+          if (input(r, c)[0] == FLT_MAX || input(r, c)[1] == FLT_MAX) {
+            continue;
+          }
+          flow += input(r, c);
+          counter++;
+        }
+      }
+      if (counter == 0) {
+        flow = cv::Vec2f(FLT_MAX, FLT_MAX);
+      } else {
+        flow /= counter;
+        flow /= 2;
+      }
+      output(row, col) = flow;
+    }
+  }
+  return output;
+}
+
+cv::Mat2f FlowResizeDouble(const cv::Mat2f& input, const cv::Size& size) {
+  cv::Mat2f output(size);
+  for (int row = 0; row < output.rows; row++) {
+    for (int col = 0; col < output.cols; col++) {
+      cv::Vec2f flow(0, 0);
+      int counter = 0;
+      for (int r = row / 2; r < std::min(input.rows, 2 + row / 2); r++) {
+        for (int c = col / 2; c < std::min(input.cols, 2 + col / 2); c++) {
+          if (input(r, c)[0] == FLT_MAX || input(r, c)[1] == FLT_MAX) {
+            continue;
+          }
+          flow += input(r, c);
+        }
+      }
+      if (counter == 0) {
+        flow = cv::Vec2f(FLT_MAX, FLT_MAX);
+      } else {
+        flow /= counter;
+        flow *= 2;
+      }
+      output(row, col) = flow;
+    }
+  }
+  return output;
+}
+
 int main(int argc, char* argv[]) {
   google::InitGoogleLogging(argv[0]);
   gflags::ParseCommandLineFlags(&argc, &argv, true);
@@ -669,17 +722,15 @@ int main(int argc, char* argv[]) {
          cam += kSkipFrames) {
       cv::imshow("l1 original", replay::FlowToColor(flows_to_layer1[cam]));
       cv::Mat2f resized_flow;
-      cv::pyrDown(flows_to_layer1[cam], flows_to_layer1[cam],
-                  image_pyramid_sizes[cam][it]);
 
-      cv::pyrDown(flows_to_layer2[cam], flows_to_layer2[cam],
-                  image_pyramid_sizes[cam][it]);
+      flows_to_layer1[cam] = FlowResizeHalf(flows_to_layer1[cam]);
+      flows_to_layer2[cam] = FlowResizeHalf(flows_to_layer2[cam]);
       // cv::Mat invalid_flows = flows_to_layer1[cam] == FLT_MAX;
-      flows_to_layer1[cam] /= 2.0;
-      flows_to_layer1[cam].setTo(FLT_MAX, flows_to_layer1[cam] >= 1e4);
-      // invalid_flows = flows_to_layer2[cam] == FLT_MAX;
-      flows_to_layer2[cam] /= 2.0;
-      flows_to_layer2[cam].setTo(FLT_MAX, flows_to_layer2[cam] >= 1e4);
+      //flows_to_layer1[cam] /= 2.0;
+      //flows_to_layer1[cam].setTo(FLT_MAX, flows_to_layer1[cam] >= 1e4);
+      //// invalid_flows = flows_to_layer2[cam] == FLT_MAX;
+      //flows_to_layer2[cam] /= 2.0;
+      //flows_to_layer2[cam].setTo(FLT_MAX, flows_to_layer2[cam] >= 1e4);
       // flows_to_layer2[cam].setTo(FLT_MAX, invalid_flows > 0);
       cv::imshow("l1 flow", replay::FlowToColor(flows_to_layer1[cam]));
       cv::imshow("l2 flow", replay::FlowToColor(flows_to_layer2[cam]));
@@ -696,6 +747,7 @@ int main(int argc, char* argv[]) {
       cv::pyrUp(alpha, alpha, layer_pyramid_sizes[level]);
       for (int cam = 0; cam < std::min(scene.NumCameras(), kMaxFrames);
            cam += kSkipFrames) {
+
         cv::pyrUp(flows_to_layer1[cam], flows_to_layer1[cam],
                   image_pyramid_sizes[cam][level]);
         cv::pyrUp(flows_to_layer2[cam], flows_to_layer2[cam],
@@ -716,7 +768,7 @@ int main(int argc, char* argv[]) {
     cv::imshow("min_composite", min_composite);
     cv::imshow("max_composite", max_composite);
     cv::imshow("alpha", alpha);
-    cv::waitKey();
+    // cv::waitKey();
 
     std::unordered_map<int, cv::Mat3b> resized_images;
     std::unordered_map<int, cv::Mat> resized_image_masks;
@@ -767,9 +819,9 @@ int main(int argc, char* argv[]) {
            cam += kSkipFrames) {
         // const replay::Camera& camera = scene.GetCamera(cam);
         cv::Mat3b& image = resized_images[cam];
-        replay::CompositeMotionRefiner motion_refiner(image.cols, image.rows);
-        motion_refiner.Optimize(min_composite, max_composite, alpha, image,
-                                flows_to_layer1[cam], flows_to_layer2[cam], 1);
+        replay::CompositeMotionRefiner::Optimize(
+            min_composite, max_composite, alpha, image, flows_to_layer1[cam],
+            flows_to_layer2[cam], 1);
       }
 
       cv::imwrite(

@@ -133,7 +133,10 @@ if (BUILD_TESTING)
       ${REPLAY_LIBRARY_DEPENDENCIES})
     add_test(NAME ${TEST_NAME}_test
       COMMAND ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${TEST_NAME}_test)
-  endmacro (GTEST)
 
-  #gtest(experimental/mask_plane_fit/ransac_plane_fit)
+
+
+  endmacro (GTEST)
+  gtest(multiview/composite_motion_refiner)
+
 endif (BUILD_TESTING)
